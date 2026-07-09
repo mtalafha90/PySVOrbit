@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>{% block title %}Orbit Analysis{% endblock %}</title>
 
-  <!-- Plotly -->
-  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+  <!-- Plotly, self-hosted (not a CDN) so plots still work on networks that
+       block third-party scripts, e.g. some campus/lab networks -->
+  <script src="{{ url_for('static', filename='vendor/plotly-2.30.0.min.js') }}"></script>
 
   <style>
     :root{
@@ -102,6 +103,56 @@
     td.num{ font-family:var(--mono); }
     code{ font-family:var(--mono); color: color-mix(in srgb, var(--accent) 60%, var(--text)); }
     .footer{ color:var(--muted); font-size:12px; padding:24px 0 10px; }
+
+    /* ---- Student-friendly helpers: steps, glossary, term tooltips, pills ---- */
+    .steps{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; }
+    .steps li{ display:flex; gap:12px; align-items:flex-start; }
+    .step-num{
+      flex:0 0 auto; width:26px; height:26px; border-radius:50%;
+      background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent2) 55%, var(--accent)));
+      color:#fff; font-weight:800; font-size:13px;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .step-body{ padding-top:2px; }
+    .step-body b{ display:block; }
+
+    .term{ border-bottom:1px dotted var(--muted); cursor:help; text-decoration:none; color:inherit; }
+
+    details.glossary{
+      border:1px solid var(--border); border-radius:14px;
+      background: color-mix(in srgb, var(--panel) 80%, transparent);
+      padding:2px 14px;
+    }
+    details.glossary summary{
+      cursor:pointer; padding:10px 0; font-weight:800;
+      display:flex; align-items:center; gap:8px; list-style:none;
+    }
+    details.glossary summary::-webkit-details-marker{ display:none; }
+    details.glossary summary::before{ content:"▸"; color:var(--muted); transition:transform .15s; }
+    details.glossary[open] summary::before{ transform:rotate(90deg); }
+    details.glossary .glossary-body{ padding:0 0 12px; }
+    details.glossary table{ margin-top:6px; }
+
+    .pill{
+      display:inline-flex; align-items:center; gap:6px;
+      font-size:12px; font-weight:800; padding:4px 10px; border-radius:999px;
+      border:1px solid var(--border);
+    }
+    .pill.good{ color:#0a8f5b; border-color: color-mix(in srgb, #0a8f5b 45%, var(--border));
+                background: color-mix(in srgb, #0a8f5b 14%, transparent); }
+    .pill.warn{ color:#b8860b; border-color: color-mix(in srgb, #b8860b 45%, var(--border));
+                background: color-mix(in srgb, #b8860b 14%, transparent); }
+    .pill.info{ color: color-mix(in srgb, var(--accent) 70%, var(--text));
+                border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+                background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+    .callout{
+      border:1px solid var(--border); border-left:4px solid var(--accent);
+      border-radius:10px; padding:10px 14px; background: color-mix(in srgb, var(--accent) 8%, transparent);
+      font-size:14px;
+    }
+    .checklist{ margin:6px 0 0; padding-left:20px; }
+    .checklist li{ margin:4px 0; }
     .spacer{ height:10px; }
 
     /* ---- Plot modal (click plot to enlarge) ---- */

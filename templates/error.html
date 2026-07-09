@@ -3,18 +3,41 @@
 
 {% block content %}
   <div class="hero">
-    <h1>Fit failed</h1>
+    <h1>😕 The fit didn't run</h1>
     <div class="subtitle">Run ID: <code>{{ run_id }}</code></div>
-    <div class="subtitle">{{ error }}</div>
   </div>
 
   <div class="card">
+    <div class="callout">{{ error }}</div>
+
+    <div class="spacer"></div>
+    <h2>Common causes to check</h2>
+    <ul class="checklist subtitle">
+      <li>Not enough data points for the number of parameters you checked as "Fit" —
+        try fixing more parameters, or unchecking fewer boxes than you have observations.</li>
+      <li>The metadata lines (<code>Object</code>, <code>RA</code>, <code>Dec</code>,
+        <code>Parallax</code>) aren't formatted the way the file type expects — see the
+        example file on the home page for the exact layout.</li>
+      <li>A data row is missing a column, or uses a comma where a <code>.csv</code> file
+        expects one but an <code>.inp</code> file doesn't (or vice versa).</li>
+      <li>Numbers use a comma as the decimal separator (e.g. <code>12,34</code>) instead
+        of a period (<code>12.34</code>).</li>
+      <li>The file was saved with the wrong extension — make sure it's really
+        <code>.inp</code>, <code>.csv</code>, or <code>.txt</code>.</li>
+    </ul>
+
+    <div class="spacer"></div>
     <div class="row">
-      <a class="btn" href="{{ url_for('index') }}">↩ Back</a>
+      <a class="btn primary" href="{{ url_for('index') }}">↩ Try again</a>
+      <a class="btn" href="{{ url_for('static', filename='examples/example_visual_binary.inp') }}" download>⬇ Get the example file</a>
     </div>
 
     <div class="spacer"></div>
-    <h2>Traceback</h2>
-    <pre style="white-space:pre-wrap; background:#111; color:#eee; padding:14px; border-radius:14px; overflow:auto; border:1px solid var(--border);">{{ traceback }}</pre>
+    <details class="glossary">
+      <summary>❔ Technical details (for debugging)</summary>
+      <div class="glossary-body">
+        <pre style="white-space:pre-wrap; background:#111; color:#eee; padding:14px; border-radius:14px; overflow:auto; border:1px solid var(--border);">{{ traceback }}</pre>
+      </div>
+    </details>
   </div>
 {% endblock %}

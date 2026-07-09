@@ -15,11 +15,16 @@
         {% if stats is defined %}
           <div class="subtitle">
             <b>Object:</b> {{ stats.name }} •
-            <b>npos:</b> {{ stats.npos }} •
-            <b>nrv1:</b> {{ stats.nrv1 }} •
-            <b>nrv2:</b> {{ stats.nrv2 }} •
-            <b>Parallax:</b> {{ stats.parallax }} mas •
-            <b>Chi2:</b> {{ stats.chi2 }}
+            <span class="term" title="Number of astrometric (visual/interferometric) position measurements used">
+              <b>Positions:</b> {{ stats.npos }}</span> •
+            <span class="term" title="Number of radial-velocity measurements for the primary star">
+              <b>RV1:</b> {{ stats.nrv1 }}</span> •
+            <span class="term" title="Number of radial-velocity measurements for the secondary star">
+              <b>RV2:</b> {{ stats.nrv2 }}</span> •
+            <span class="term" title="Apparent shift due to Earth's orbit, used to convert angular size to distance">
+              <b>Parallax:</b> {{ stats.parallax }} mas</span> •
+            <span class="term" title="Total chi-squared: how well the fit matches the data relative to your quoted measurement errors">
+              <b>Chi²:</b> {{ "%.4g"|format(stats.chi2) }}</span>
           </div>
         {% else %}
           <div class="subtitle"><b>Summary:</b> N/A</div>
@@ -36,6 +41,38 @@
     </div>
 
     <div class="spacer"></div>
+    <details class="glossary">
+      <summary>❔ How do I tell if this is a good fit?</summary>
+      <div class="glossary-body subtitle">
+        Look at <b>reduced chi² per data type</b> below: values close to <b>1</b> mean the fit
+        matches your data about as well as your quoted measurement errors would predict — a good
+        sign. Much <b>larger than 1</b> usually means the model doesn't quite match the data (or
+        your errors were underestimated); much <b>smaller than 1</b> usually means the errors were
+        overestimated. Also check <b>RMS</b> (root-mean-square residual): it tells you, in real
+        units, how far the fit typically misses each data point.
+      </div>
+    </details>
+
+    {% if stats is defined and stats.npos > 0 or stats.nrv1 > 0 or stats.nrv2 > 0 %}
+      <div class="spacer"></div>
+      <table>
+        <thead><tr><th>Data type</th><th>Reduced χ²</th><th>RMS residual</th></tr></thead>
+        <tbody>
+          {% if stats.npos > 0 %}
+            <tr><td>Position angle (θ)</td><td class="num">{{ "%.3g"|format(stats.chi2n_theta) }}</td><td class="num">{{ "%.4g"|format(stats.rms_theta) }}°</td></tr>
+            <tr><td>Separation (ρ)</td><td class="num">{{ "%.3g"|format(stats.chi2n_rho) }}</td><td class="num">{{ "%.4g"|format(stats.rms_rho) }}″</td></tr>
+          {% endif %}
+          {% if stats.nrv1 > 0 %}
+            <tr><td>RV1 (primary)</td><td class="num">{{ "%.3g"|format(stats.chi2n_rv1) }}</td><td class="num">{{ "%.4g"|format(stats.rms_rv1) }} km/s</td></tr>
+          {% endif %}
+          {% if stats.nrv2 > 0 %}
+            <tr><td>RV2 (secondary)</td><td class="num">{{ "%.3g"|format(stats.chi2n_rv2) }}</td><td class="num">{{ "%.4g"|format(stats.rms_rv2) }} km/s</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <div class="spacer"></div>
     <form method="POST" action="{{ url_for('cleanup', run_id=run_id) }}">
       <button class="btn danger" type="submit">🗑 Delete run files</button>
     </form>
@@ -46,14 +83,18 @@
       <div class="spacer"></div>
       <table>
         <thead>
-          <tr><th>Parameter</th><th>Value</th><th>Error</th><th>Fit?</th></tr>
+          <tr>
+            <th>Parameter</th><th>Value</th>
+            <th><span class="term" title="Uncertainty on the fitted value (1-sigma). Only meaningful when Fit? = Yes.">Error</span></th>
+            <th><span class="term" title="Yes = the tool solved for this value. No = it was held fixed at the value from your file.">Fit?</span></th>
+          </tr>
         </thead>
         <tbody>
           {% for row in elements %}
             <tr>
-              <td><b>{{ row.name }}</b></td>
+              <td><b class="term" title="{{ glossary.get(row.name, '') }}">{{ row.name }}</b></td>
               <td class="num">{{ "%.10g"|format(row.value) }}</td>
-              <td class="num">{{ "%.3g"|format(row.err) }}</td>
+              <td class="num">{{ "%.3g"|format(row.err) if row.fit==1 else "—" }}</td>
               <td>{{ "Yes" if row.fit==1 else "No" }}</td>
             </tr>
           {% endfor %}
@@ -66,14 +107,15 @@
 
     {% if derived is defined %}
       {% if derived.warnings and derived.warnings|length > 0 %}
-        <div class="subtitle">
+        <div class="callout">
           <b>Notes:</b>
-          <ul>
+          <ul class="checklist">
             {% for w in derived.warnings %}
               <li>{{ w }}</li>
             {% endfor %}
           </ul>
         </div>
+        <div class="spacer"></div>
       {% endif %}
 
       <table>
@@ -82,28 +124,28 @@
         </thead>
         <tbody>
           {% if derived.parallax_mas is defined %}
-            <tr><td>Parallax (mas)</td><td class="num">{{ "%.6g"|format(derived.parallax_mas) }}</td></tr>
+            <tr><td class="term" title="As read from your file">Parallax (mas)</td><td class="num">{{ "%.6g"|format(derived.parallax_mas) }}</td></tr>
           {% endif %}
           {% if derived.distance_pc is defined %}
-            <tr><td>Distance (pc)</td><td class="num">{{ "%.6g"|format(derived.distance_pc) }}</td></tr>
+            <tr><td class="term" title="Distance = 1000 / parallax(mas), in parsecs">Distance (pc)</td><td class="num">{{ "%.6g"|format(derived.distance_pc) }}</td></tr>
           {% endif %}
           {% if derived.a_AU is defined %}
-            <tr><td>a (AU)</td><td class="num">{{ "%.6g"|format(derived.a_AU) }}</td></tr>
+            <tr><td class="term" title="The orbit's physical size: angular size × distance">a (AU)</td><td class="num">{{ "%.6g"|format(derived.a_AU) }}</td></tr>
           {% endif %}
           {% if derived.P_yr is defined %}
-            <tr><td>P (yr used)</td><td class="num">{{ "%.6g"|format(derived.P_yr) }}</td></tr>
+            <tr><td class="term" title="Period converted to years, as used in the mass calculation">P (yr used)</td><td class="num">{{ "%.6g"|format(derived.P_yr) }}</td></tr>
           {% endif %}
           {% if derived.M_total_Msun is defined %}
-            <tr><td>M<sub>total</sub> (M☉)</td><td class="num">{{ "%.6g"|format(derived.M_total_Msun) }}</td></tr>
+            <tr><td class="term" title="Combined mass of both stars, from Kepler's third law (a³/P²)">M<sub>total</sub> (M☉)</td><td class="num">{{ "%.6g"|format(derived.M_total_Msun) }}</td></tr>
           {% endif %}
           {% if derived.q_M2_over_M1 is defined %}
-            <tr><td>q = M2/M1</td><td class="num">{{ "%.6g"|format(derived.q_M2_over_M1) }}</td></tr>
+            <tr><td class="term" title="Mass ratio: a star with a smaller RV swing (K) is the heavier one">q = M2/M1</td><td class="num">{{ "%.6g"|format(derived.q_M2_over_M1) }}</td></tr>
           {% endif %}
           {% if derived.M1_Msun is defined %}
-            <tr><td>M1 (M☉)</td><td class="num">{{ "%.6g"|format(derived.M1_Msun) }}</td></tr>
+            <tr><td class="term" title="Mass of the primary star, in solar masses">M1 (M☉)</td><td class="num">{{ "%.6g"|format(derived.M1_Msun) }}</td></tr>
           {% endif %}
           {% if derived.M2_Msun is defined %}
-            <tr><td>M2 (M☉)</td><td class="num">{{ "%.6g"|format(derived.M2_Msun) }}</td></tr>
+            <tr><td class="term" title="Mass of the secondary star, in solar masses">M2 (M☉)</td><td class="num">{{ "%.6g"|format(derived.M2_Msun) }}</td></tr>
           {% endif %}
         </tbody>
       </table>
