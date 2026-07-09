@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Error{% endblock %}
+
+{% block content %}
+  <div class="hero">
+    <h1>Fit failed</h1>
+    <div class="subtitle">Run ID: <code>{{ run_id }}</code></div>
+    <div class="subtitle">{{ error }}</div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <a class="btn" href="{{ url_for('index') }}">↩ Back</a>
+    </div>
+
+    <div class="spacer"></div>
+    <h2>Traceback</h2>
+    <pre style="white-space:pre-wrap; background:#111; color:#eee; padding:14px; border-radius:14px; overflow:auto; border:1px solid var(--border);">{{ traceback }}</pre>
+  </div>
+{% endblock %}
