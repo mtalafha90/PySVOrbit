@@ -11,9 +11,11 @@ import numpy as np
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
 from flask import send_file
 from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage, PageBreak
 from werkzeug.utils import secure_filename
 from plotly.subplots import make_subplots
 
@@ -506,6 +508,17 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
         except Exception:
             pass
         derived = compute_derived(elements, stats)
+
+        # Persist the numeric results so /report/<run_id> (a separate later
+        # request) can build a full PDF without depending on the shared,
+        # possibly-since-overwritten backend.orb global.
+        try:
+            (run_dir / "summary.json").write_text(json.dumps({
+                "run_id": run_dir.name, "elements": elements, "stats": stats, "derived": derived,
+            }))
+        except Exception:
+            pass
+
         return {
             "run_id": run_dir.name,
             "elements": elements,
@@ -634,6 +647,36 @@ def cleanup(run_id):
         shutil.rmtree(run_dir, ignore_errors=True)
     flash("Run directory cleaned up.", "info")
     return redirect(url_for("index"))
+_PDF_STYLES = getSampleStyleSheet()
+_PDF_TITLE = ParagraphStyle("PdfTitle", parent=_PDF_STYLES["Title"], fontSize=18, spaceAfter=2)
+_PDF_META = ParagraphStyle("PdfMeta", parent=_PDF_STYLES["Normal"], fontSize=9, textColor=colors.HexColor("#5a6578"))
+_PDF_H2 = ParagraphStyle("PdfH2", parent=_PDF_STYLES["Heading2"], fontSize=13, spaceBefore=10, spaceAfter=4,
+                         textColor=colors.HexColor("#1a1a2e"))
+_PDF_H3 = ParagraphStyle("PdfH3", parent=_PDF_STYLES["Heading3"], fontSize=10.5, spaceBefore=6, spaceAfter=2)
+_PDF_BODY = ParagraphStyle("PdfBody", parent=_PDF_STYLES["Normal"], fontSize=9.5, leading=13)
+_PDF_CAPTION = ParagraphStyle("PdfCaption", parent=_PDF_STYLES["Normal"], fontSize=8.5,
+                               textColor=colors.HexColor("#5a6578"), spaceBefore=6)
+_PDF_WARN = ParagraphStyle("PdfWarn", parent=_PDF_STYLES["Normal"], fontSize=9, textColor=colors.HexColor("#8a5a00"))
+
+
+def _pdf_table(rows, col_widths=None):
+    t = Table(rows, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#7c5cff")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dcdce6")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f6f6fb")]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    return t
+
+
 @app.route("/report/<run_id>")
 def report(run_id):
     run_dir = RUNS_DIR / run_id
@@ -641,83 +684,114 @@ def report(run_id):
         flash("Run not found.", "error")
         return redirect(url_for("index"))
 
-    # Reconstruct what we can from files: read output CSV isn't necessary;
-    # easiest: store a small JSON summary at run time (optional).
-    # For now, we’ll create a PDF from what’s already in memory by reloading backend is tricky,
-    # so we generate from the saved artifacts + minimal metadata.
+    data = None
+    summary_path = run_dir / "summary.json"
+    if summary_path.exists():
+        try:
+            data = json.loads(summary_path.read_text())
+        except Exception:
+            data = None
 
     pdf_path = run_dir / f"{run_id}_report.pdf"
+    doc = SimpleDocTemplate(str(pdf_path), pagesize=A4,
+                             topMargin=1.8*cm, bottomMargin=1.8*cm, leftMargin=2*cm, rightMargin=2*cm)
+    story = []
 
-    c = canvas.Canvas(str(pdf_path), pagesize=A4)
-    W, H = A4
+    story.append(Paragraph("Binary-Star Orbit Fitting Report", _PDF_TITLE))
+    story.append(Paragraph(f"Run ID: {run_id}", _PDF_META))
+    obj_name = (data or {}).get("stats", {}).get("name")
+    if obj_name:
+        story.append(Paragraph(f"Object: {obj_name}", _PDF_META))
+    story.append(Paragraph("Developed by Dr. Mohammed H. Talafha", _PDF_META))
+    story.append(Spacer(1, 0.5*cm))
 
-    y = H - 2.2*cm
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(2*cm, y, "Binary-Star Orbit Fitting Report")
-    y -= 0.8*cm
+    if data:
+        story.append(Paragraph(
+            "This report summarises a least-squares fit of a binary-star orbit to the "
+            "uploaded observations. The fit adjusts the checked orbital elements until the "
+            "predicted orbit matches the data as closely as possible; the quoted errors show "
+            "how tightly each element is constrained by the data.", _PDF_BODY))
 
-    c.setFont("Helvetica", 10)
-    c.drawString(2*cm, y, f"Run ID: {run_id}")
-    y -= 0.55*cm
-    c.drawString(2*cm, y, "Developed by Dr. Mohammed H. Talafha")
-    y -= 0.9*cm
+        elements = data.get("elements", [])
+        if elements:
+            story.append(Paragraph("Orbital Elements", _PDF_H2))
+            rows = [["Parameter", "Value", "Error", "Fit?"]]
+            for row in elements:
+                err = f'{row["err"]:.3g}' if row.get("fit") == 1 else "—"
+                rows.append([row["name"], f'{row["value"]:.10g}', err, "Yes" if row.get("fit") == 1 else "No"])
+            story.append(_pdf_table(rows, col_widths=[3.5*cm, 5*cm, 4*cm, 2.5*cm]))
 
-    # List key files present
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(2*cm, y, "Outputs")
-    y -= 0.6*cm
-    c.setFont("Helvetica", 10)
+            story.append(Paragraph("What these mean", _PDF_H3))
+            gloss_rows = [["Symbol", "Meaning"]]
+            for row in elements:
+                nm = row["name"]
+                if nm in ELEMENT_GLOSSARY:
+                    gloss_rows.append([nm, ELEMENT_GLOSSARY[nm]])
+            story.append(_pdf_table(gloss_rows, col_widths=[2*cm, 13*cm]))
 
-    output_csv = None
-    for f in run_dir.iterdir():
-        if f.name.endswith("_output.csv"):
-            output_csv = f.name
-            break
-    if output_csv:
-        c.drawString(2*cm, y, f"Results CSV: {output_csv}")
-        y -= 0.5*cm
+        stats = data.get("stats", {})
+        if stats.get("npos", 0) > 0 or stats.get("nrv1", 0) > 0 or stats.get("nrv2", 0) > 0:
+            story.append(Paragraph("Fit Quality", _PDF_H2))
+            story.append(Paragraph(
+                "Reduced chi-squared (χ²) near 1 means the fit matches the data about as well "
+                "as the quoted measurement errors predict; much larger suggests a poor fit or "
+                "underestimated errors, much smaller suggests overestimated errors. RMS is the "
+                "typical size of the fit's miss, in real units.", _PDF_BODY))
+            rows = [["Data type", "Reduced χ²", "RMS residual"]]
+            if stats.get("npos", 0) > 0:
+                rows.append(["Position angle (θ)", f'{stats["chi2n_theta"]:.3g}', f'{stats["rms_theta"]:.4g}°'])
+                rows.append(["Separation (ρ)", f'{stats["chi2n_rho"]:.3g}', f'{stats["rms_rho"]:.4g}"'])
+            if stats.get("nrv1", 0) > 0:
+                rows.append(["RV1 (primary)", f'{stats["chi2n_rv1"]:.3g}', f'{stats["rms_rv1"]:.4g} km/s'])
+            if stats.get("nrv2", 0) > 0:
+                rows.append(["RV2 (secondary)", f'{stats["chi2n_rv2"]:.3g}', f'{stats["rms_rv2"]:.4g} km/s'])
+            story.append(_pdf_table(rows, col_widths=[6*cm, 4.5*cm, 4.5*cm]))
+
+        derived = data.get("derived", {})
+        if derived:
+            story.append(Paragraph("Derived Quantities (Masses)", _PDF_H2))
+            for w in derived.get("warnings", []):
+                story.append(Paragraph(f"Note: {w}", _PDF_WARN))
+            labels = [
+                ("parallax_mas", "Parallax (mas)"), ("distance_pc", "Distance (pc)"),
+                ("a_AU", "a (AU)"), ("P_yr", "P (yr used)"),
+                ("M_total_Msun", "M_total (Msun)"), ("q_M2_over_M1", "q = M2/M1"),
+                ("M1_Msun", "M1 (Msun)"), ("M2_Msun", "M2 (Msun)"),
+            ]
+            rows = [["Quantity", "Value"]]
+            for key, label in labels:
+                if key in derived:
+                    rows.append([label, f'{derived[key]:.6g}'])
+            if len(rows) > 1:
+                story.append(_pdf_table(rows, col_widths=[8*cm, 7*cm]))
+    else:
+        story.append(Paragraph(
+            "Numeric results were not available when this report was generated; showing plots only.",
+            _PDF_BODY))
 
     # Plots
-    plot_files = sorted([p.name for p in run_dir.glob("plot_*.png")])
+    plot_files = sorted(run_dir.glob("plot_*.png"))
     if (run_dir / "residuals.png").exists():
-        plot_files.append("residuals.png")
+        plot_files.append(run_dir / "residuals.png")
+    if plot_files:
+        story.append(PageBreak())
+        story.append(Paragraph("Plots", _PDF_H2))
+        story.append(Paragraph("Click-to-enlarge and marker styling are available in the web UI; this PDF embeds the same images.", _PDF_BODY))
+        max_w = A4[0] - 4*cm
+        max_h = A4[1] - 6*cm
+        for p in plot_files:
+            try:
+                img = ImageReader(str(p))
+                iw, ih = img.getSize()
+                draw_w, draw_h = max_w, ih * (max_w / iw)
+                if draw_h > max_h:
+                    draw_h, draw_w = max_h, iw * (max_h / ih)
+                story.append(Paragraph(p.name, _PDF_CAPTION))
+                story.append(RLImage(str(p), width=draw_w, height=draw_h))
+            except Exception:
+                story.append(Paragraph(f"(Could not embed {p.name})", _PDF_BODY))
 
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(2*cm, y, "Plots")
-    y -= 0.6*cm
-    c.setFont("Helvetica", 9)
-    c.drawString(2*cm, y, "Click-to-enlarge is available in the web UI; PDF embeds the same images.")
-    y -= 0.8*cm
-
-    # Embed images (2 per page width-ish)
-    max_img_w = W - 4*cm
-    for pf in plot_files:
-        img_path = run_dir / pf
-        try:
-            img = ImageReader(str(img_path))
-            iw, ih = img.getSize()
-            scale = max_img_w / float(iw)
-            draw_w = max_img_w
-            draw_h = ih * scale
-
-            if y - draw_h < 2*cm:
-                c.showPage()
-                y = H - 2.2*cm
-                c.setFont("Helvetica-Bold", 12)
-                c.drawString(2*cm, y, "Plots (continued)")
-                y -= 1.0*cm
-
-            c.setFont("Helvetica", 9)
-            c.drawString(2*cm, y, pf)
-            y -= 0.35*cm
-            c.drawImage(img, 2*cm, y - draw_h, width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
-            y -= draw_h + 0.8*cm
-        except Exception:
-            c.setFont("Helvetica", 10)
-            c.drawString(2*cm, y, f"(Could not embed {pf})")
-            y -= 0.5*cm
-
-    c.save()
+    doc.build(story)
     return send_file(str(pdf_path), as_attachment=True, download_name=pdf_path.name)
 
 
