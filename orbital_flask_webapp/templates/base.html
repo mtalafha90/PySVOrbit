@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{% block title %}Orbit Analysis{% endblock %}</title>
+
+  <!-- Plotly -->
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#0b0c0f; --panel:#12141a; --panel2:#0f1116;
+      --text:#e9ecf1; --muted:#a7b0c0; --border:rgba(255,255,255,.09);
+      --shadow:0 10px 30px rgba(0,0,0,.35);
+      --accent:#7c5cff; --accent2:#2dd4bf; --danger:#ff4d4d;
+      --radius:16px; --pad:18px; --max:1100px;
+      --mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      --sans:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    @media (prefers-color-scheme: light){
+      :root{ --bg:#f6f7fb; --panel:#fff; --panel2:#fbfbfe; --text:#131722;
+        --muted:#5a6578; --border:rgba(10,12,16,.12); --shadow:0 10px 30px rgba(10,12,16,.08); }
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0; font-family:var(--sans); color:var(--text); line-height:1.45;
+      background: radial-gradient(1200px 700px at 20% -10%, rgba(124,92,255,.25), transparent 60%),
+                  radial-gradient(900px 600px at 110% 10%, rgba(45,212,191,.18), transparent 55%),
+                  var(--bg);
+    }
+    .container{ max-width:var(--max); margin:0 auto; padding:22px; }
+    .nav{
+      position:sticky; top:0; z-index:50;
+      backdrop-filter: blur(10px);
+      background: color-mix(in srgb, var(--bg) 70%, transparent);
+      border-bottom:1px solid var(--border);
+    }
+    .nav-inner{
+      max-width:var(--max); margin:0 auto; padding:14px 22px;
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+    }
+    .brand{ display:flex; align-items:center; gap:10px; font-weight:800; letter-spacing:.2px; flex-wrap:wrap; }
+    .badge{ font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid var(--border); color:var(--muted); }
+    .hero{ padding:18px 0 10px; display:flex; flex-direction:column; gap:10px; }
+    h1,h2,h3{ margin:0; }
+    .subtitle{ color:var(--muted); max-width:70ch; }
+    .grid{ display:grid; gap:14px; }
+    .grid-2{ grid-template-columns:1fr 1fr; }
+    @media (max-width: 900px){ .grid-2{ grid-template-columns:1fr; } }
+    .card{
+      background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, transparent), var(--panel2));
+      border:1px solid var(--border); border-radius:var(--radius);
+      box-shadow:var(--shadow); padding:var(--pad);
+    }
+    .row{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    /* ================================
+    Parameter selector: row layout
+    (use in index.html as <div class="param-wrap">...</div>)
+    ================================ */
+    .param-wrap{
+      display:flex;
+      flex-wrap:wrap;        /* makes it 1–2 rows automatically */
+      gap:10px 12px;
+      align-items:center;
+    }
+    .param-wrap label.chk{
+      flex: 0 0 auto;        /* prevent stretching */
+    }
+    .btn{
+      appearance:none; border:1px solid var(--border);
+      background: color-mix(in srgb, var(--panel) 75%, transparent);
+      color:var(--text); padding:10px 14px; border-radius:12px;
+      cursor:pointer; font-weight:700; text-decoration:none;
+      display:inline-flex; align-items:center; gap:8px;
+    }
+    .btn.primary{
+      background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent2) 55%, var(--accent)));
+      border-color:transparent; color:white;
+    }
+    .btn.danger{
+      background: color-mix(in srgb, var(--danger) 18%, transparent);
+      border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+    }
+    .flash{
+      border-radius:14px; padding:12px 14px; border:1px solid var(--border);
+      background: color-mix(in srgb, var(--panel) 80%, transparent); margin-bottom:12px;
+    }
+    .flash.error{ border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+                  background: color-mix(in srgb, var(--danger) 15%, transparent); }
+    .flash.info{ border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+                 background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+    table{
+      width:100%; border-collapse:collapse; border-radius:14px;
+      border:1px solid var(--border); overflow:hidden;
+      background: color-mix(in srgb, var(--panel) 85%, transparent);
+    }
+    th,td{ padding:10px 12px; border-bottom:1px solid var(--border); font-size:14px; }
+    th{ text-align:left; background: color-mix(in srgb, var(--panel) 95%, transparent); color:var(--muted); font-weight:800; }
+    tr:nth-child(even) td{ background: color-mix(in srgb, var(--panel2) 70%, transparent); }
+    td.num{ font-family:var(--mono); }
+    code{ font-family:var(--mono); color: color-mix(in srgb, var(--accent) 60%, var(--text)); }
+    .footer{ color:var(--muted); font-size:12px; padding:24px 0 10px; }
+    .spacer{ height:10px; }
+
+    /* ---- Plot modal (click plot to enlarge) ---- */
+    .modal{
+      display:none;
+      position:fixed;
+      inset:0;
+      z-index:9999;
+      background:rgba(0,0,0,.85);
+      align-items:center;
+      justify-content:center;
+      padding:28px;
+    }
+    .modal.open{ display:flex; }
+    .modal-inner{
+      width:min(1200px, 98vw);
+      height:min(820px, 92vh);
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 20px 70px rgba(0,0,0,.6);
+      padding:10px;
+      position:relative;
+    }
+    .modal-close{
+      position:absolute; right:10px; top:10px;
+      border:1px solid var(--border);
+      background: color-mix(in srgb, var(--panel) 75%, transparent);
+      color:var(--text);
+      border-radius:12px;
+      padding:8px 10px;
+      cursor:pointer;
+      font-weight:800;
+    }
+    .modal-plot{ width:100%; height:100%; }
+  </style>
+
+  {% block head %}{% endblock %}
+</head>
+
+<body>
+  <div class="nav">
+    <div class="nav-inner">
+      <div class="brand">
+        <span>🛰️ Orbit Analysis for Visual & Spectroscopic Binaries</span>
+        <span class="badge">RV + Visual</span>
+      </div>
+      <div class="row">
+        <a class="btn" href="{{ url_for('index') }}">New Fit</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+          <div class="flash {{cat}}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+
+    <div class="footer">Developed by <b>Dr. Mohammed H. Talafha</b></div>
+  </div>
+
+  <!-- Plotly modal -->
+  <div id="plotModal" class="modal" onclick="closePlotModal(event)">
+    <div class="modal-inner" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="forceClosePlotModal()">✕</button>
+      <div id="modalPlot" class="modal-plot"></div>
+    </div>
+  </div>
+
+<script>
+  function openPlotModal(figObj){
+    const modal = document.getElementById("plotModal");
+    modal.classList.add("open");
+    Plotly.newPlot("modalPlot", figObj.data, figObj.layout, {responsive:true});
+    setTimeout(()=>Plotly.Plots.resize("modalPlot"), 50);
+  }
+  function forceClosePlotModal(){
+    const modal = document.getElementById("plotModal");
+    modal.classList.remove("open");
+    Plotly.purge("modalPlot");
+  }
+  function closePlotModal(e){
+    forceClosePlotModal();
+  }
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape") forceClosePlotModal();
+  });
+
+  // ✅ Style controls (markers ONLY)
+  function _markerTraceIndices(divId){
+    const gd = document.getElementById(divId);
+    const idx = [];
+    gd.data.forEach((tr,i)=>{
+      const mode = tr.mode || "";
+      if (mode.includes("markers")) idx.push(i);
+    });
+    return idx;
+  }
+
+  function setMarkerColor(divId, color){
+    const gd = document.getElementById(divId);
+    const idx = _markerTraceIndices(divId);
+    Plotly.restyle(gd, {"marker.color": color}, idx);
+  }
+
+  function setMarkerSize(divId, size){
+    const gd = document.getElementById(divId);
+    const idx = _markerTraceIndices(divId);
+    Plotly.restyle(gd, {"marker.size": parseFloat(size)}, idx);
+  }
+
+  function setMarkerSymbol(divId, sym){
+    const gd = document.getElementById(divId);
+    const idx = _markerTraceIndices(divId);
+    Plotly.restyle(gd, {"marker.symbol": sym}, idx);
+  }
+</script>
+
+</body>
+</html>

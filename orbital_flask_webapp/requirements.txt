@@ -1,0 +1,8 @@
+numpy
+pandas
+matplotlib
+scipy
+flask
+gunicorn
+reportlab
+plotly
