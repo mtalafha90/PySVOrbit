@@ -77,6 +77,19 @@ def _solve_kepler(ANM, SF, tol=1e-5, max_iter=100):
         E = E1
     return E
 
+def _wrap_deg_diff(diff):
+    """Wrap a position-angle difference (degrees) into [-180, 180).
+
+    Position angle is a circular quantity in [0, 360); a naive difference
+    between e.g. an observed 358.8 deg and a predicted 1.7 deg is 357.1,
+    when the true angular offset is -2.9 deg. Left unwrapped, this both
+    corrupts the least-squares objective (any point near the 0/360 branch
+    dominates chi^2) and, inside alleph()'s finite-difference Jacobian,
+    can produce wildly wrong derivatives when a perturbed trial value
+    crosses the branch.
+    """
+    return (diff + 180) % 360 - 180
+
 # Ephemeris calculation
 def eph(el, t, rho=False, rv=False):
     n = len(t)
@@ -709,7 +722,10 @@ def alleph(params, i):
             if orb.fixel[k] > 0:
                 el1 = el0.copy()
                 el1[k] += del_vals[k]
-                deriv[k] = (eph(el1[:n_base], [time], rho=True)[0, j] - res) / del_vals[k]
+                d = eph(el1[:n_base], [time], rho=True)[0, j] - res
+                if j == 0:  # theta (position angle) is circular; rho is not
+                    d = _wrap_deg_diff(d)
+                deriv[k] = d / del_vals[k]
         return np.concatenate([[res], deriv[selfit]])
     elif i < 2 * orb.obj['npos'] + orb.obj['nrv1']:
         k_i = i - 2 * orb.obj['npos']
@@ -772,7 +788,10 @@ def fitorb(rms_only=False):
     par = orb.el[selfit]
     def residuals(params):
       y1 = np.array([alleph(params, i)[0] for i in range(n)])
-      return (yy - y1) / err
+      diff = yy - y1
+      if npos > 0:
+          diff[:npos] = _wrap_deg_diff(diff[:npos])  # theta is circular
+      return diff / err
     if rms_only:
         y1 = np.array([alleph(par, i)[0] for i in range(n)])
     else:
@@ -808,7 +827,10 @@ def fitorb(rms_only=False):
             orb.elerr[selfit] = np.zeros(len(selfit))
 
     wt = 1 / err**2
-    resid2 = (yy - y1)**2 * wt
+    theta_diff = yy - y1
+    if npos > 0:
+        theta_diff[:npos] = _wrap_deg_diff(theta_diff[:npos])  # theta is circular
+    resid2 = theta_diff**2 * wt
     nmin = [0, npos, 2*npos, 2*npos+nrv1]
     nmax = [npos, 2*npos, 2*npos+nrv1, n]
     ndat = [nmax[i] - nmin[i] for i in range(4)]
@@ -848,7 +870,7 @@ def fitorb(rms_only=False):
     orb.obj['rms'] = wrms
     orb.obj['chi2n'] = normchi2
     if not rms_only:
-        orb.obj['chi2'] = np.sum((yy - y1)**2 / err**2)
+        orb.obj['chi2'] = np.sum(theta_diff**2 / err**2)
         orbplot()
 
     return yy, y1
