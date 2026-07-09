@@ -18,6 +18,22 @@ gunicorn -w 2 -b 127.0.0.1:8000 app:app
 ```
 Reverse proxy with Nginx/Apache to 127.0.0.1:8000.
 
+## Deploy on Render
+
+`render.yaml` at the repo root configures this as a Render Blueprint:
+build with `pip install -r requirements.txt`, run with
+`gunicorn -w 2 -b 0.0.0.0:$PORT app:app`, and auto-generate a
+`FLASK_SECRET_KEY`. In the Render dashboard: **New > Blueprint**, point it
+at this repo, and deploy — no manual configuration needed. To configure a
+Web Service by hand instead, use the same build/start commands above.
+
+Note: uploaded orbits, generated plots, CSVs and PDF reports are written
+to a local `runs/` directory. Render's free/standard instance disk is
+ephemeral (wiped on redeploy or restart) and not shared across multiple
+instances, so download links from past runs won't survive either — fine
+for a single-instance deployment used interactively, but not a permanent
+results store.
+
 ## Notes on orbital fitting
 
 - **Period units**: the orbital period `P` may be supplied in days or in
