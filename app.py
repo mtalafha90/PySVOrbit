@@ -524,12 +524,47 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-me")
 
+# Plain-language reference for the orbital elements, shown as tooltips,
+# under-checkbox captions, and the expandable glossary on the upload page.
+ELEMENT_FULL_NAMES = {
+    "P": "Orbital period",
+    "T": "Time of periastron",
+    "e": "Eccentricity",
+    "a": "Semi-major axis",
+    "W": "Longitude of ascending node (Ω)",
+    "w": "Argument of periastron (ω)",
+    "i": "Inclination",
+    "K1": "RV semi-amplitude (primary)",
+    "K2": "RV semi-amplitude (secondary)",
+    "V0": "Systemic velocity",
+}
+ELEMENT_GLOSSARY = {
+    "P": "How long one full orbit takes (years or days, matching your file).",
+    "T": "The epoch when the two stars are closest together (same time system as P).",
+    "e": "How elongated the orbit is: 0 = perfect circle, close to 1 = very stretched ellipse.",
+    "a": "The apparent size of the orbit on the sky, in arcseconds (for astrometric/visual data).",
+    "W": "Which way the orbit is tilted on the sky, in degrees — orientation of the line of nodes.",
+    "w": "Where periastron (closest approach) sits within the orbital plane, in degrees.",
+    "i": "How tilted the orbital plane is to our line of sight: 0° = face-on, 90° = edge-on.",
+    "K1": "How fast the primary star's radial velocity swings up and down, in km/s.",
+    "K2": "How fast the secondary star's radial velocity swings up and down, in km/s.",
+    "V0": "The whole system's velocity through space, in km/s (the RV curves' midline).",
+}
+ELEMENT_SHORT_LABELS = {
+    "P": "period", "T": "periastron time", "e": "eccentricity", "a": "semi-major axis",
+    "W": "node angle", "w": "periastron angle", "i": "inclination",
+    "K1": "RV amp. 1", "K2": "RV amp. 2", "V0": "systemic v",
+}
+
 
 @app.route("/", methods=["GET"])
 def index():
     elnames = list(getattr(backend, "orb").elname)
     defaults = {nm: 1 for nm in elnames}  # checked=fit
-    return render_template("index.html", elnames=elnames, defaults=defaults)
+    return render_template(
+        "index.html", elnames=elnames, defaults=defaults,
+        full_names=ELEMENT_FULL_NAMES, glossary=ELEMENT_GLOSSARY, short_labels=ELEMENT_SHORT_LABELS,
+    )
 
 
 @app.route("/run", methods=["POST"])
@@ -560,11 +595,12 @@ def run():
         fixel_map = {nm: (1 if request.form.get(f"fit_{nm}") == "on" else 0) for nm in elnames}
 
         summary = run_fit_to_dir(run_dir, uploaded_path, fixel_map)
-        return render_template("result.html", **summary)
+        return render_template("result.html", glossary=ELEMENT_GLOSSARY, **summary)
 
     except Exception as e:
         tb = traceback.format_exc()
-        flash(f"Fit failed: {e}", "error")
+        # error.html displays `error` prominently itself, so no flash() here
+        # to avoid showing the same message twice.
         # IMPORTANT: render error page with safe defaults (stats always exists)
         return render_template(
             "error.html",

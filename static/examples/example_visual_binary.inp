@@ -1,0 +1,72 @@
+C Synthetic example orbit for teaching purposes (not a real star).
+C Physically self-consistent: the astrometric mass (from a, P, parallax)
+C and spectroscopic mass (from K1, K2) agree, as they should for a real binary.
+C Try running a fit as-is, then experiment: uncheck some Fit boxes,
+C or nudge a starting value and re-run to see how the fit responds.
+Object: Teaching Binary 1
+RA: 12.0000
+Dec: 45.0000
+Parallax: 28.00
+P     8.500
+T     2018.250
+e     0.350
+a     0.1493
+W     55.000
+w     120.000
+i     60.000
+K1    7.405
+K2    9.873
+V0    -12.000
+C Visual/astrometric measurements: epoch(yr)  PA(deg)  sep(arcsec)  err(arcsec)
+2015.0448  34.6076  0.1652  0.004  I1  Teach
+2016.9143  67.7824  0.1289  0.004  I1  Teach
+2017.1664  73.6874  0.1041  0.004  I1  Teach
+2017.3666  83.5518  0.0891  0.004  I1  Teach
+2017.5514  94.4388  0.0703  0.004  I1  Teach
+2017.5758  97.1207  0.0686  0.004  I1  Teach
+2018.7831  226.6639  0.1071  0.004  I1  Teach
+2018.9774  235.5913  0.1099  0.004  I1  Teach
+2020.3133  281.1310  0.1013  0.004  I1  Teach
+2021.5933  344.3837  0.1044  0.004  I1  Teach
+2021.7751  351.6609  0.1053  0.004  I1  Teach
+2021.9804  358.7716  0.1136  0.004  I1  Teach
+2022.4252  9.6888  0.1309  0.004  I1  Teach
+2022.6263  16.6031  0.1382  0.004  I1  Teach
+C Primary-star radial velocities: epoch(yr)  RV(km/s)  err(km/s)
+2015.5036  -6.5438  0.30  Va  Teach
+2015.7777  -6.3585  0.30  Va  Teach
+2016.2767  -5.8649  0.30  Va  Teach
+2017.7458  -11.6925  0.30  Va  Teach
+2018.0707  -15.1431  0.30  Va  Teach
+2018.2253  -16.7849  0.30  Va  Teach
+2018.2949  -17.2347  0.30  Va  Teach
+2019.3161  -19.8299  0.30  Va  Teach
+2019.5997  -19.5037  0.30  Va  Teach
+2020.0149  -17.7568  0.30  Va  Teach
+2020.0846  -17.1209  0.30  Va  Teach
+2020.1430  -17.5506  0.30  Va  Teach
+2020.4376  -16.0313  0.30  Va  Teach
+2021.3051  -12.9361  0.30  Va  Teach
+2021.9389  -10.7322  0.30  Va  Teach
+2022.2008  -10.1742  0.30  Va  Teach
+2022.4064  -9.9056  0.30  Va  Teach
+2023.3194  -7.8716  0.30  Va  Teach
+C Secondary-star radial velocities: epoch(yr)  RV(km/s)  err(km/s)
+2015.5036  -19.2698  0.30  Vb  Teach
+2015.7777  -19.2956  0.30  Vb  Teach
+2016.2767  -20.2447  0.30  Vb  Teach
+2017.7458  -12.8816  0.30  Vb  Teach
+2018.0707  -7.9141  0.30  Vb  Teach
+2018.2253  -5.7157  0.30  Vb  Teach
+2018.2949  -4.7701  0.30  Vb  Teach
+2019.3161  -1.4569  0.30  Vb  Teach
+2019.5997  -2.4391  0.30  Vb  Teach
+2020.0149  -4.7001  0.30  Vb  Teach
+2020.0846  -4.6649  0.30  Vb  Teach
+2020.1430  -5.1000  0.30  Vb  Teach
+2020.4376  -6.7853  0.30  Vb  Teach
+2021.3051  -10.6172  0.30  Vb  Teach
+2021.9389  -13.3564  0.30  Vb  Teach
+2022.2008  -13.9416  0.30  Vb  Teach
+2022.4064  -14.9030  0.30  Vb  Teach
+2023.3194  -17.4815  0.30  Vb  Teach
