@@ -315,8 +315,9 @@ def orbplot_plotly():
         rv = backend.eph(backend.orb.el, t, rv=True)
         fig2 = go.Figure()
         if int(backend.orb.obj.get("nrv1", 0)) > 0 and getattr(backend.orb, "rv1", None) is not None and len(backend.orb.rv1) > 0:
+            rv1_corr = backend.orb.rv1[:, 1] - backend.rv_offset_for_points(backend.orb.rv1_source, len(backend.orb.rv1))
             fig2.add_trace(go.Scatter(
-                x=backend.orb.rv1[:, 0], y=backend.orb.rv1[:, 1],
+                x=backend.orb.rv1[:, 0], y=rv1_corr,
                 mode="markers", name="Primary RV",
                 error_y=dict(type="data", array=backend.orb.rv1[:, 2], visible=True),
                 marker=dict(size=8, symbol="circle")
@@ -326,8 +327,9 @@ def orbplot_plotly():
                 mode="lines", name="Primary Fit"
             ))
             if int(backend.orb.obj.get("nrv2", 0)) > 0 and getattr(backend.orb, "rv2", None) is not None and len(backend.orb.rv2) > 0:
+                rv2_corr = backend.orb.rv2[:, 1] - backend.rv_offset_for_points(backend.orb.rv2_source, len(backend.orb.rv2))
                 fig2.add_trace(go.Scatter(
-                    x=backend.orb.rv2[:, 0], y=backend.orb.rv2[:, 1],
+                    x=backend.orb.rv2[:, 0], y=rv2_corr,
                     mode="markers", name="Secondary RV",
                     error_y=dict(type="data", array=backend.orb.rv2[:, 2], visible=True),
                     marker=dict(size=8, symbol="diamond")
@@ -355,8 +357,9 @@ def orbplot_plotly():
         fig3 = go.Figure()
         if int(backend.orb.obj.get("nrv1", 0)) > 0:
             phase1 = ((backend.orb.rv1[:, 0] - backend.orb.el[1]) / backend.orb.el[0]) % 1
+            rv1_corr = backend.orb.rv1[:, 1] - backend.rv_offset_for_points(backend.orb.rv1_source, len(backend.orb.rv1))
             fig3.add_trace(go.Scatter(
-                x=phase1, y=backend.orb.rv1[:, 1],
+                x=phase1, y=rv1_corr,
                 mode="markers", name="Primary RV",
                 error_y=dict(type="data", array=backend.orb.rv1[:, 2], visible=True),
                 marker=dict(size=8, symbol="circle")
@@ -368,8 +371,9 @@ def orbplot_plotly():
 
         if int(backend.orb.obj.get("nrv2", 0)) > 0:
             phase2 = ((backend.orb.rv2[:, 0] - backend.orb.el[1]) / backend.orb.el[0]) % 1
+            rv2_corr = backend.orb.rv2[:, 1] - backend.rv_offset_for_points(backend.orb.rv2_source, len(backend.orb.rv2))
             fig3.add_trace(go.Scatter(
-                x=phase2, y=backend.orb.rv2[:, 1],
+                x=phase2, y=rv2_corr,
                 mode="markers", name="Secondary RV",
                 error_y=dict(type="data", array=backend.orb.rv2[:, 2], visible=True),
                 marker=dict(size=8, symbol="diamond")
