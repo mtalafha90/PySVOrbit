@@ -16,21 +16,31 @@ import os
 #import tkinter as tk
 #from tkinter import filedialog, messagebox, ttk
 #from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import streamlit as st
-
 
 import sys
 import io
 # Global variables
 class OrbitData:
+    N_BASE = 10  # [P, T, e, a, W, w, i, K1, K2, V0]
+
     def __init__(self):
-        self.el = np.zeros(10)  # [P, T, e, a, W, w, i, K1, K2, V0]
-        self.elerr = np.zeros(10)
-        self.fixel = np.ones(10, dtype=int)
+        self.el = np.zeros(self.N_BASE)
+        self.elerr = np.zeros(self.N_BASE)
+        self.fixel = np.ones(self.N_BASE, dtype=int)
         self.elname = ['P', 'T', 'e', 'a', 'W', 'w', 'i', 'K1', 'K2', 'V0']
         self.pos = None
         self.rv1 = None
         self.rv2 = None
+        # Per-point instrument/source labels (only populated by
+        # readcsv_custom; readinp leaves these empty since .inp files
+        # carry no source tag).
+        self.rv1_source = []
+        self.rv2_source = []
+        self.pos_source = []
+        # Maps a non-reference RV source label -> index into el/elname/
+        # fixel/elerr of its fitted zero-point offset (dV0), so RVs from
+        # different instruments can be combined in one simultaneous fit.
+        self.rv_offset_index = {}
         self.obj = {'name': '', 'radeg': 0.0, 'dedeg': 0.0, 'npos': 0, 'nrv1': 0, 'nrv2': 0,
                     'rms': np.zeros(4), 'chi2n': np.zeros(4), 'chi2': 0.0, 'fname': '',
                     'parallax': 0.0}
@@ -38,8 +48,34 @@ class OrbitData:
 
 orb = OrbitData()
 
-# Constants
-G = 2945.98  # Gravitational constant in km^3 s^-2 M_sun^-1 day^-1
+# Physical constants (SI), used to derive spectroscopic mass estimates from
+# first principles rather than a hand-tuned coefficient.
+G_NEWTON = 6.674e-11    # m^3 kg^-1 s^-2
+M_SUN_KG = 1.989e30     # kg
+SEC_PER_YEAR = 365.25 * 86400.0
+
+
+def _period_in_years(P):
+    """Best-effort P unit detection: input files may give the period in
+    days or in years. Values above ~200 are treated as days (a period of
+    200 years is astrophysically implausible for the binaries this tool
+    targets, while 200 days is a common close-binary period)."""
+    return P / 365.25 if P > 200 else P
+
+def _solve_kepler(ANM, SF, tol=1e-5, max_iter=100):
+    """Solve Kepler's equation M = E - e*sin(E) for E via Newton-Raphson.
+
+    Capped at max_iter so a bad trial eccentricity (e.g. pushed >= 1 during
+    fitting) can't hang the caller in an infinite loop; returns the best
+    estimate reached so far in that case.
+    """
+    E = ANM
+    for _ in range(max_iter):
+        E1 = E + (ANM + SF * np.sin(E) - E) / (1 - SF * np.cos(E))
+        if abs(E1 - E) <= tol:
+            return E1
+        E = E1
+    return E
 
 # Ephemeris calculation
 def eph(el, t, rho=False, rv=False):
@@ -48,7 +84,10 @@ def eph(el, t, rho=False, rv=False):
     pi2 = 2 * np.pi
     gr = 180 / np.pi
 
-    P, T, SF, a, W, w, i, K1, K2, V0 = el
+    # el may carry extra per-instrument RV offset parameters appended past
+    # the base 10 (see OrbitData.N_BASE / rv_offset_index); the orbit
+    # geometry itself only ever depends on the first 10.
+    P, T, SF, a, W, w, i, K1, K2, V0 = el[:10]
     CF2 = 1 - SF**2
     CF = np.sqrt(CF2)
     EC = np.sqrt((1 + SF) / (1 - SF))
@@ -60,46 +99,38 @@ def eph(el, t, rho=False, rv=False):
     SI = np.sin(i / gr)
 
     if rv:
-        for i in range(n):
-            dt = t[i] - T
+        for k in range(n):
+            dt = t[k] - T
             phase = (dt / P) % 1
             if phase < 0:
                 phase += 1
             ANM = phase * pi2
-            E = ANM
-            E1 = E + (ANM + SF * np.sin(E) - E) / (1 - SF * np.cos(E))
-            while abs(E1 - E) > 1e-5:
-                E = E1
-                E1 = E + (ANM + SF * np.sin(E) - E) / (1 - SF * np.cos(E))
+            E1 = _solve_kepler(ANM, SF)
             V = 2 * np.arctan(EC * np.tan(E1 / 2))
             U = V + w / gr
             CU = np.cos(U)
             A1 = SF * CW + CU
-            res[i, 0] = V0 + K1 * A1
-            res[i, 1] = V0 - K2 * A1
+            res[k, 0] = V0 + K1 * A1
+            res[k, 1] = V0 - K2 * A1
     else:
         AA = a * (CW * CWW - SW * SWW * CI)
         BB = a * (CW * SWW + SW * CWW * CI)
         FF = a * (-SW * CWW - CW * SWW * CI)
         GG = a * (-SW * SWW + CW * CWW * CI)
-        for i in range(n):
-            dt = t[i] - T
+        for k in range(n):
+            dt = t[k] - T
             phase = (dt / P) % 1
             if phase < 0:
                 phase += 1
             ANM = phase * pi2
-            E = ANM
-            E1 = E + (ANM + SF * np.sin(E) - E) / (1 - SF * np.cos(E))
-            while abs(E1 - E) > 1e-5:
-                E = E1
-                E1 = E + (ANM + SF * np.sin(E) - E) / (1 - SF * np.cos(E))
+            E1 = _solve_kepler(ANM, SF)
             V = 2 * np.arctan(EC * np.tan(E1 / 2))
             CV = np.cos(V)
             R = CF2 / (1 + SF * CV)
             X = R * CV
             Y = R * np.sin(V)
-            res[i, 0] = AA * X + FF * Y
-            res[i, 1] = BB * X + GG * Y
+            res[k, 0] = AA * X + FF * Y
+            res[k, 1] = BB * X + GG * Y
 
     if rho:
         rho_vals = np.sqrt(res[:, 0]**2 + res[:, 1]**2)
@@ -112,13 +143,20 @@ def eph(el, t, rho=False, rv=False):
 
 # Coordinate parsing
 def getcoord(s):
-    l = s.find('.')
-    deg = int(s[:l]) if l > 0 else int(s)
-    min_part = float(s[l:]) if l > 0 else 0
-    res = abs(deg) + min_part
-    if float(s) < 0:
-        res = -res
-    return res
+    """Parse a coordinate given either as a plain decimal (hours or
+    degrees), e.g. '12.5762', or as sexagesimal D/H M S, space- or
+    colon-separated, e.g. '12 34 33.1' or '-45:30:00'."""
+    s = s.strip()
+    sign = -1 if s.startswith('-') else 1
+    parts = s.lstrip('+-').replace(':', ' ').split()
+    if len(parts) >= 2:
+        deg = float(parts[0])
+        minute = float(parts[1])
+        sec = float(parts[2]) if len(parts) > 2 else 0.0
+        res = deg + minute / 60.0 + sec / 3600.0
+    else:
+        res = float(parts[0])
+    return sign * res
 
 # Time correction
 def correct(data, t0):
@@ -135,9 +173,11 @@ def readcsv_custom(fname):
     orb.rv1_source = []
     orb.rv2_source = []
     orb.pos_source = []
-    orb.el = np.zeros(10)
-    orb.fixel = np.ones(10, dtype=int)
-    orb.elerr = np.zeros(10)
+    orb.rv_offset_index = {}
+    orb.elname = ['P', 'T', 'e', 'a', 'W', 'w', 'i', 'K1', 'K2', 'V0']
+    orb.el = np.zeros(OrbitData.N_BASE)
+    orb.fixel = np.ones(OrbitData.N_BASE, dtype=int)
+    orb.elerr = np.zeros(OrbitData.N_BASE)
     orb.obj = {'name': '', 'radeg': 0.0, 'dedeg': 0.0, 'npos': 0, 'nrv1': 0, 'nrv2': 0, 'rms': np.zeros(4), 'chi2n': np.zeros(4), 'chi2': 0.0, 'fname': fname, 'parallax': 0.0}
     nmax = 1000
     orb.pos = np.zeros((nmax, 6))
@@ -166,18 +206,22 @@ def readcsv_custom(fname):
 
         # Metadata and elements
         if len(parts) == 2:
-            key = parts[0].strip().lower()
-            #print(key)  # Debug output
+            # Normalized (case/period/colon-insensitive) key match, so
+            # e.g. 'Parallax' can't accidentally substring-match 'ra' (it
+            # contains "ra" at index 2-3) before reaching the parallax
+            # check. parts[0] itself stays untouched for the
+            # orbital-element check below, since those names are
+            # case-sensitive ('w' vs 'W' differ).
+            key = parts[0].strip().rstrip(':').replace('.', '').upper()
             val = parts[1].strip()
-            if "object" in key:
+            if key == 'OBJECT':
                 orb.obj['name'] = val
-            elif "ra" in key:
+            elif key == 'RA':
                 orb.obj['radeg'] = 15 * getcoord(val)
-            elif "dec" in key:
+            elif key in ('DEC', 'DECLINATION'):
                 orb.obj['dedeg'] = getcoord(val)
-            elif "par" in key:
+            elif key in ('PARALLAX', 'PLX'):
                 orb.obj['parallax'] = float(val)
-                #print(f"DEBUG: Parallax read = {orb.obj['parallax']}")
             elif parts[0] in orb.elname:
                 idx = orb.elname.index(parts[0])
                 orb.el[idx] = float(parts[1])
@@ -218,14 +262,36 @@ def readcsv_custom(fname):
     if kpos > 0:
         correct(orb.pos, orb.el[1])
 
+    # RV zero-point offsets: when RVs come from more than one instrument
+    # (source label in the last CSV column), fit an additive dV0 offset for
+    # every source beyond a single reference source, so systematic
+    # zero-point differences between instruments don't bias the orbit.
+    all_sources = sorted(set(orb.rv1_source) | set(orb.rv2_source))
+    if len(all_sources) > 1:
+        extra_sources = all_sources[1:]  # all_sources[0] is the reference (offset fixed at 0)
+        orb.rv_offset_index = {src: OrbitData.N_BASE + k for k, src in enumerate(extra_sources)}
+        n_extra = len(extra_sources)
+        orb.el = np.concatenate([orb.el, np.zeros(n_extra)])
+        orb.elerr = np.concatenate([orb.elerr, np.zeros(n_extra)])
+        orb.fixel = np.concatenate([orb.fixel, np.ones(n_extra, dtype=int)])
+        orb.elname = orb.elname + [f"dV0_{src}" for src in extra_sources]
+        print(f"RV sources detected: {all_sources}; fitting zero-point offsets for {extra_sources} "
+              f"relative to reference source '{all_sources[0]}'.")
+
     orb.graph['mode'] = 1 if (krv1 > 0 or krv2 > 0) else 0
     # HM: ─── save the *initial* elements for later overlay & printing ───
     orb.initial_el = orb.el.copy()
 
 def readinp(fname):
     global orb
-    orb.el = np.zeros(10)
-    orb.fixel = np.ones(10, dtype=int)
+    orb.el = np.zeros(OrbitData.N_BASE)
+    orb.fixel = np.ones(OrbitData.N_BASE, dtype=int)
+    orb.elname = ['P', 'T', 'e', 'a', 'W', 'w', 'i', 'K1', 'K2', 'V0']
+    orb.elerr = np.zeros(OrbitData.N_BASE)
+    orb.rv1_source = []
+    orb.rv2_source = []
+    orb.pos_source = []
+    orb.rv_offset_index = {}
     nmax = 500
     orb.pos = np.zeros((nmax, 6))
     orb.rv1 = np.zeros((nmax, 3))
@@ -251,13 +317,18 @@ def readinp(fname):
         parts = line.split()
         if not parts:
             continue
-        if parts[0] == 'Object:':
+        # Normalize the key for metadata matching (case/period/colon
+        # insensitive, e.g. 'R.A.:', 'ra:' and 'RA:' all match), but leave
+        # parts[0] itself untouched for the orbital-element check below,
+        # since element names are case-sensitive ('w' vs 'W' differ).
+        key = parts[0].strip().rstrip(':').replace('.', '').upper()
+        if key == 'OBJECT':
             orb.obj['name'] = ' '.join(parts[1:])
-        elif parts[0] == 'RA:':
+        elif key == 'RA':
             orb.obj['radeg'] = 15 * getcoord(parts[1])
-        elif parts[0] == 'Dec:':
+        elif key in ('DEC', 'DECLINATION'):
             orb.obj['dedeg'] = getcoord(parts[1])
-        elif parts[0] == 'Parallax:':
+        elif key in ('PARALLAX', 'PLX'):
             orb.obj['parallax'] = float(parts[1])
         elif parts[0] in orb.elname:
             ind = orb.elname.index(parts[0])
@@ -379,10 +450,12 @@ def orbplot_streamlit():
 
         fig2, ax2 = plt.subplots(figsize=(8, 5))
         if orb.obj['nrv1'] > 0:
-            ax2.errorbar(orb.rv1[:, 0], orb.rv1[:, 1], yerr=orb.rv1[:, 2], fmt='bo', label='Primary RV')
+            rv1_corr = orb.rv1[:, 1] - rv_offset_for_points(orb.rv1_source, len(orb.rv1))
+            ax2.errorbar(orb.rv1[:, 0], rv1_corr, yerr=orb.rv1[:, 2], fmt='bo', label='Primary RV')
             ax2.plot(t, rv[:, 0], 'b-', label='Primary Fit')
         if orb.obj['nrv2'] > 0:
-            ax2.errorbar(orb.rv2[:, 0], orb.rv2[:, 1], yerr=orb.rv2[:, 2], fmt='ro', label='Secondary RV')
+            rv2_corr = orb.rv2[:, 1] - rv_offset_for_points(orb.rv2_source, len(orb.rv2))
+            ax2.errorbar(orb.rv2[:, 0], rv2_corr, yerr=orb.rv2[:, 2], fmt='ro', label='Secondary RV')
             ax2.plot(t, rv[:, 1], 'r--', label='Secondary Fit')
 
         ax2.set_xlabel('Time (JD)')
@@ -399,11 +472,13 @@ def orbplot_streamlit():
 
         if orb.obj['nrv1'] > 0:
             phase1 = ((orb.rv1[:, 0] - orb.el[1]) / orb.el[0]) % 1
-            ax3.errorbar(phase1, orb.rv1[:, 1], yerr=orb.rv1[:, 2], fmt='bo', label='Primary RV')
+            rv1_corr = orb.rv1[:, 1] - rv_offset_for_points(orb.rv1_source, len(orb.rv1))
+            ax3.errorbar(phase1, rv1_corr, yerr=orb.rv1[:, 2], fmt='bo', label='Primary RV')
             ax3.plot(phases, rv_phase[:, 0], 'b-', label='Primary Fit')
         if orb.obj['nrv2'] > 0:
             phase2 = ((orb.rv2[:, 0] - orb.el[1]) / orb.el[0]) % 1
-            ax3.errorbar(phase2, orb.rv2[:, 1], yerr=orb.rv2[:, 2], fmt='ro', label='Secondary RV')
+            rv2_corr = orb.rv2[:, 1] - rv_offset_for_points(orb.rv2_source, len(orb.rv2))
+            ax3.errorbar(phase2, rv2_corr, yerr=orb.rv2[:, 2], fmt='ro', label='Secondary RV')
             ax3.plot(phases, rv_phase[:, 1], 'r--', label='Secondary Fit')
 
         ax3.set_xlabel('Phase')
@@ -548,9 +623,11 @@ def orbplot(ps=False):
         rv = eph(orb.el, t, rv=True)
 
         if orb.obj['nrv1'] > 0:
-            plt.errorbar(orb.rv1[:, 0], orb.rv1[:, 1], yerr=orb.rv1[:, 2], fmt='bo', label='Primary RV')
+            rv1_corr = orb.rv1[:, 1] - rv_offset_for_points(orb.rv1_source, len(orb.rv1))
+            plt.errorbar(orb.rv1[:, 0], rv1_corr, yerr=orb.rv1[:, 2], fmt='bo', label='Primary RV')
         if orb.obj['nrv2'] > 0:
-            plt.errorbar(orb.rv2[:, 0], orb.rv2[:, 1], yerr=orb.rv2[:, 2], fmt='ro', label='Secondary RV')
+            rv2_corr = orb.rv2[:, 1] - rv_offset_for_points(orb.rv2_source, len(orb.rv2))
+            plt.errorbar(orb.rv2[:, 0], rv2_corr, yerr=orb.rv2[:, 2], fmt='ro', label='Secondary RV')
 
         if orb.obj['nrv1'] > 0:
             plt.plot(t, rv[:, 0], 'b-', label='Primary Fit')
@@ -574,11 +651,13 @@ def orbplot(ps=False):
         if orb.obj['nrv1'] > 0:
             phase1 = ((orb.rv1[:, 0] - orb.el[1]) / orb.el[0]) % 1
             phase1[phase1 < 0] += 1
-            plt.errorbar(phase1, orb.rv1[:, 1], yerr=orb.rv1[:, 2], fmt='bo', label='Primary RV')
+            rv1_corr = orb.rv1[:, 1] - rv_offset_for_points(orb.rv1_source, len(orb.rv1))
+            plt.errorbar(phase1, rv1_corr, yerr=orb.rv1[:, 2], fmt='bo', label='Primary RV')
         if orb.obj['nrv2'] > 0:
             phase2 = ((orb.rv2[:, 0] - orb.el[1]) / orb.el[0]) % 1
             phase2[phase2 < 0] += 1
-            plt.errorbar(phase2, orb.rv2[:, 1], yerr=orb.rv2[:, 2], fmt='ro', label='Secondary RV')
+            rv2_corr = orb.rv2[:, 1] - rv_offset_for_points(orb.rv2_source, len(orb.rv2))
+            plt.errorbar(phase2, rv2_corr, yerr=orb.rv2[:, 2], fmt='ro', label='Secondary RV')
 
         if orb.obj['nrv1'] > 0:
             plt.plot(phases, rv[:, 0], 'b-', label='Primary Fit')
@@ -594,45 +673,75 @@ def orbplot(ps=False):
             #files.download(f"{name}_RV_phase.png")
         #st.pyplot(plt.gcf())
 
+def rv_offset_for_points(sources, n):
+    """Fitted zero-point offset for each of n RV points, looked up by
+    source label. Returns zeros if no source labels are available (e.g.
+    .inp uploads) or no multi-instrument offsets were fit."""
+    if not orb.rv_offset_index or len(sources) != n:
+        return np.zeros(n)
+    return np.array([orb.el[orb.rv_offset_index[s]] if s in orb.rv_offset_index else 0.0
+                      for s in sources])
+
 # Fit orbital elements
 def alleph(params, i):
     global orb
+    n_base = OrbitData.N_BASE
     selfit = np.where(orb.fixel > 0)[0]
     el0 = orb.el.copy()
     el0[selfit] = params
     e = 0.01
-    del_vals = [e * el0[0], e * el0[0], e, e * el0[3], 1, 1, 1, e * el0[7], e * el0[8], e * el0[7]]
+    # Eccentricity is bounded in [0, 1); if a forward step would cross that
+    # boundary (common when fitting highly eccentric orbits), step backward
+    # instead so CF2 = 1 - SF^2 in eph() never goes negative (-> NaN).
+    e_step = e if el0[2] + e < 0.999 else -e
+    del_vals = [e * el0[0], e * el0[0], e_step, e * el0[3], 1, 1, 1, e * el0[7], e * el0[8], e * el0[7]]
+
+    def rv_offset(source):
+        idx = orb.rv_offset_index.get(source)
+        return el0[idx] if idx is not None else 0.0
 
     if i < 2 * orb.obj['npos']:
         j = 1 if i >= orb.obj['npos'] else 0
         time = orb.pos[i - j * orb.obj['npos'], 0]
-        res = eph(el0, [time], rho=True)[0, j]
-        deriv = np.zeros(10)
-        for k in range(10):
+        res = eph(el0[:n_base], [time], rho=True)[0, j]
+        deriv = np.zeros(len(el0))
+        for k in range(n_base):
             if orb.fixel[k] > 0:
                 el1 = el0.copy()
                 el1[k] += del_vals[k]
-                deriv[k] = (eph(el1, [time], rho=True)[0, j] - res) / del_vals[k]
+                deriv[k] = (eph(el1[:n_base], [time], rho=True)[0, j] - res) / del_vals[k]
         return np.concatenate([[res], deriv[selfit]])
     elif i < 2 * orb.obj['npos'] + orb.obj['nrv1']:
-        time = orb.rv1[i - 2 * orb.obj['npos'], 0]
-        res = eph(el0, [time], rv=True)[0, 0]
-        deriv = np.zeros(10)
-        for k in range(10):
+        k_i = i - 2 * orb.obj['npos']
+        time = orb.rv1[k_i, 0]
+        source = orb.rv1_source[k_i] if k_i < len(orb.rv1_source) else None
+        base = eph(el0[:n_base], [time], rv=True)[0, 0]
+        res = base + rv_offset(source)
+        deriv = np.zeros(len(el0))
+        for k in range(n_base):
             if orb.fixel[k] > 0:
                 el1 = el0.copy()
                 el1[k] += del_vals[k]
-                deriv[k] = (eph(el1, [time], rv=True)[0, 0] - res) / del_vals[k]
+                deriv[k] = (eph(el1[:n_base], [time], rv=True)[0, 0] - base) / del_vals[k]
+        off_idx = orb.rv_offset_index.get(source)
+        if off_idx is not None and orb.fixel[off_idx] > 0:
+            deriv[off_idx] = 1.0
         return np.concatenate([[res], deriv[selfit]])
     elif i < 2 * orb.obj['npos'] + orb.obj['nrv1'] + orb.obj['nrv2']:
-        time = orb.rv2[i - 2 * orb.obj['npos'] - orb.obj['nrv1'], 0]
-        res = eph(el0, [time], rv=True)[0, 1]
-        deriv = np.zeros(10)
-        for k in range(10):
+        k_i = i - 2 * orb.obj['npos'] - orb.obj['nrv1']
+        time = orb.rv2[k_i, 0]
+        source = orb.rv2_source[k_i] if k_i < len(orb.rv2_source) else None
+        base = eph(el0[:n_base], [time], rv=True)[0, 1]
+        res = base + rv_offset(source)
+        deriv = np.zeros(len(el0))
+        for k in range(n_base):
             if orb.fixel[k] > 0:
                 el1 = el0.copy()
                 el1[k] += del_vals[k]
-                deriv[k] = (eph(el1, [time], rv=True)[0, 1] - res) / del_vals[k]
+                deriv[k] = (eph(el1[:n_base], [time], rv=True)[0, 1] - base) / del_vals[k]
+        off_idx = orb.rv_offset_index.get(source)
+        if off_idx is not None and orb.fixel[off_idx] > 0:
+            deriv[off_idx] = 1.0
         return np.concatenate([[res], deriv[selfit]])
     return np.zeros(len(selfit) + 1)
 
@@ -748,9 +857,11 @@ def fitorb(rms_only=False):
 def calculate_total_mass(P, a, parallax):
     if parallax <= 0:
         return 0.0
+    P_yr = _period_in_years(P)
     distance_pc = 1000.0 / parallax
     a_au = a * distance_pc
-    total_mass = (a_au**3) / (P**2)
+    # Kepler's third law in solar units: M_total [Msun] = a[AU]^3 / P[yr]^2
+    total_mass = (a_au**3) / (P_yr**2)
     return total_mass
 
 # Calculate spectroscopic masses
@@ -758,13 +869,17 @@ def calculate_spectroscopic_masses(P, e, i, K1, K2):
     if K1 == 0 and K2 == 0:
         return 0.0, 0.0, 0.0
 
+    P_sec = _period_in_years(P) * SEC_PER_YEAR
+
     i_rad = np.radians(i)
     sin_i = np.sin(i_rad)
     sin3_i = sin_i**3
-    K_sum = K1 + K2
+    K_sum_ms = (K1 + K2) * 1000.0  # km/s -> m/s
 
-    # M(1+2) * sin^3(i) in solar masses
-    M12_sin3i = (K_sum**3 * P * (1 - e**2)**(3/2)) / (2 * np.pi * G)
+    # M(1+2) * sin^3(i), derived directly from Newton's law of gravitation
+    # + Kepler's third law (SI units), then converted to solar masses.
+    M12_sin3i_kg = (K_sum_ms**3 * P_sec * (1 - e**2)**(3/2)) / (2 * np.pi * G_NEWTON)
+    M12_sin3i = M12_sin3i_kg / M_SUN_KG
 
     q = K1 / K2 if K2 != 0 else float('inf')
     if q != float('inf'):
@@ -806,9 +921,10 @@ def orbsave():
         pos_df = pd.DataFrame()
 
     if orb.obj['nrv1'] > 0:
-        rv1_fit = eph(orb.el, orb.rv1[:, 0], rv=True)[:, 0]
+        rv1_fit = eph(orb.el, orb.rv1[:, 0], rv=True)[:, 0] + rv_offset_for_points(orb.rv1_source, len(orb.rv1))
         rv1_data = {
             'Time': orb.rv1[:, 0],
+            'Source': orb.rv1_source if len(orb.rv1_source) == len(orb.rv1) else [''] * len(orb.rv1),
             'RV_Obs': orb.rv1[:, 1],
             'Err': orb.rv1[:, 2],
             'RV_Fit': rv1_fit
@@ -818,9 +934,10 @@ def orbsave():
         rv1_df = pd.DataFrame()
 
     if orb.obj['nrv2'] > 0:
-        rv2_fit = eph(orb.el, orb.rv2[:, 0], rv=True)[:, 1]
+        rv2_fit = eph(orb.el, orb.rv2[:, 0], rv=True)[:, 1] + rv_offset_for_points(orb.rv2_source, len(orb.rv2))
         rv2_data = {
             'Time': orb.rv2[:, 0],
+            'Source': orb.rv2_source if len(orb.rv2_source) == len(orb.rv2) else [''] * len(orb.rv2),
             'RV_Obs': orb.rv2[:, 1],
             'Err': orb.rv2[:, 2],
             'RV_Fit': rv2_fit
