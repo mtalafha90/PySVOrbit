@@ -6,3 +6,4 @@ flask
 gunicorn
 reportlab
 plotly
+kaleido

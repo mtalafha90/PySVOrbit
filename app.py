@@ -2,6 +2,7 @@ import os
 import uuid
 import shutil
 import traceback
+import io
 from pathlib import Path
 import math
 import plotly.graph_objects as go
@@ -447,8 +448,8 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
                 p = run_dir / f"plot_{idx}.png"
                 save_fig(fig, p)
                 plot_files.append(p.name)
-            else:
-                print("No plot function found in backend (expected orbplot_streamlit/orbplot/make_plots).")
+        else:
+            print("No plot function found in backend (expected orbplot_streamlit/orbplot/make_plots).")
         # (B) Build Plotly interactive plots for the web UI
         plotly_figs = []
         try:
@@ -515,6 +516,7 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
         try:
             (run_dir / "summary.json").write_text(json.dumps({
                 "run_id": run_dir.name, "elements": elements, "stats": stats, "derived": derived,
+                "plotly_figs": plotly_figs,  # so the PDF report can render the same plots
             }))
         except Exception:
             pass
@@ -677,6 +679,23 @@ def _pdf_table(rows, col_widths=None):
     return t
 
 
+# Optional override for sandboxed/offline environments where Kaleido can't
+# auto-detect or download its own Chrome; normally left unset so Kaleido
+# manages its own browser (see the Render build step in render.yaml).
+_KALEIDO_CHROME_PATH = os.environ.get("KALEIDO_CHROME_PATH")
+
+
+def _plotly_json_to_png(fig_json: str, width=1000, height=620, scale=2) -> bytes:
+    """Render a Plotly figure (as saved by orbplot_plotly) to PNG bytes via
+    Kaleido, so the PDF report shows the exact same plot as the web UI."""
+    import kaleido
+    fig_dict = json.loads(fig_json)
+    kopts = {"path": _KALEIDO_CHROME_PATH} if _KALEIDO_CHROME_PATH else {}
+    return kaleido.calc_fig_sync(
+        fig_dict, opts={"width": width, "height": height, "scale": scale, "format": "png"}, kopts=kopts,
+    )
+
+
 @app.route("/report/<run_id>")
 def report(run_id):
     run_dir = RUNS_DIR / run_id
@@ -769,27 +788,54 @@ def report(run_id):
             "Numeric results were not available when this report was generated; showing plots only.",
             _PDF_BODY))
 
-    # Plots
-    plot_files = sorted(run_dir.glob("plot_*.png"))
-    if (run_dir / "residuals.png").exists():
-        plot_files.append(run_dir / "residuals.png")
-    if plot_files:
-        story.append(PageBreak())
-        story.append(Paragraph("Plots", _PDF_H2))
-        story.append(Paragraph("Click-to-enlarge and marker styling are available in the web UI; this PDF embeds the same images.", _PDF_BODY))
-        max_w = A4[0] - 4*cm
-        max_h = A4[1] - 6*cm
-        for p in plot_files:
-            try:
-                img = ImageReader(str(p))
-                iw, ih = img.getSize()
-                draw_w, draw_h = max_w, ih * (max_w / iw)
-                if draw_h > max_h:
-                    draw_h, draw_w = max_h, iw * (max_h / ih)
-                story.append(Paragraph(p.name, _PDF_CAPTION))
-                story.append(RLImage(str(p), width=draw_w, height=draw_h))
-            except Exception:
-                story.append(Paragraph(f"(Could not embed {p.name})", _PDF_BODY))
+    # Plots. Prefer rendering the same Plotly figures shown on the results
+    # page (via Kaleido) so the PDF visually matches the web UI; fall back
+    # to the separate Matplotlib PNGs if that's unavailable (e.g. Kaleido's
+    # browser isn't installed) or for older runs saved before this existed.
+    max_w = A4[0] - 4*cm
+    max_h = A4[1] - 6*cm
+
+    def _add_image(target, caption, img_reader_source, is_bytesio=False):
+        img = ImageReader(img_reader_source)
+        iw, ih = img.getSize()
+        draw_w, draw_h = max_w, ih * (max_w / iw)
+        if draw_h > max_h:
+            draw_h, draw_w = max_h, iw * (max_h / ih)
+        target.append(Paragraph(caption, _PDF_CAPTION))
+        if is_bytesio:
+            img_reader_source.seek(0)
+        target.append(RLImage(img_reader_source, width=draw_w, height=draw_h))
+
+    plotly_figs = (data or {}).get("plotly_figs") or []
+    plots_added = False
+    if plotly_figs:
+        plotly_story = [
+            PageBreak(),
+            Paragraph("Plots", _PDF_H2),
+            Paragraph("These match the interactive plots in the web UI.", _PDF_BODY),
+        ]
+        try:
+            for item in plotly_figs:
+                png_bytes = _plotly_json_to_png(item["fig_json"])
+                _add_image(plotly_story, item.get("title", ""), io.BytesIO(png_bytes), is_bytesio=True)
+            story.extend(plotly_story)
+            plots_added = True
+        except Exception:
+            traceback.print_exc()  # fall through to the file-based plots below
+
+    if not plots_added:
+        plot_files = sorted(run_dir.glob("plot_*.png"))
+        if (run_dir / "residuals.png").exists():
+            plot_files.append(run_dir / "residuals.png")
+        if plot_files:
+            story.append(PageBreak())
+            story.append(Paragraph("Plots", _PDF_H2))
+            story.append(Paragraph("Click-to-enlarge and marker styling are available in the web UI; this PDF embeds the same images.", _PDF_BODY))
+            for p in plot_files:
+                try:
+                    _add_image(story, p.name, str(p))
+                except Exception:
+                    story.append(Paragraph(f"(Could not embed {p.name})", _PDF_BODY))
 
     doc.build(story)
     return send_file(str(pdf_path), as_attachment=True, download_name=pdf_path.name)
