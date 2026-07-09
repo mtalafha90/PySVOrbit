@@ -206,18 +206,22 @@ def readcsv_custom(fname):
 
         # Metadata and elements
         if len(parts) == 2:
-            key = parts[0].strip().lower()
-            #print(key)  # Debug output
+            # Normalized (case/period/colon-insensitive) key match, so
+            # e.g. 'Parallax' can't accidentally substring-match 'ra' (it
+            # contains "ra" at index 2-3) before reaching the parallax
+            # check. parts[0] itself stays untouched for the
+            # orbital-element check below, since those names are
+            # case-sensitive ('w' vs 'W' differ).
+            key = parts[0].strip().rstrip(':').replace('.', '').upper()
             val = parts[1].strip()
-            if "object" in key:
+            if key == 'OBJECT':
                 orb.obj['name'] = val
-            elif "ra" in key:
+            elif key == 'RA':
                 orb.obj['radeg'] = 15 * getcoord(val)
-            elif "dec" in key:
+            elif key in ('DEC', 'DECLINATION'):
                 orb.obj['dedeg'] = getcoord(val)
-            elif "par" in key:
+            elif key in ('PARALLAX', 'PLX'):
                 orb.obj['parallax'] = float(val)
-                #print(f"DEBUG: Parallax read = {orb.obj['parallax']}")
             elif parts[0] in orb.elname:
                 idx = orb.elname.index(parts[0])
                 orb.el[idx] = float(parts[1])
@@ -313,13 +317,18 @@ def readinp(fname):
         parts = line.split()
         if not parts:
             continue
-        if parts[0] == 'Object:':
+        # Normalize the key for metadata matching (case/period/colon
+        # insensitive, e.g. 'R.A.:', 'ra:' and 'RA:' all match), but leave
+        # parts[0] itself untouched for the orbital-element check below,
+        # since element names are case-sensitive ('w' vs 'W' differ).
+        key = parts[0].strip().rstrip(':').replace('.', '').upper()
+        if key == 'OBJECT':
             orb.obj['name'] = ' '.join(parts[1:])
-        elif parts[0] == 'RA:':
+        elif key == 'RA':
             orb.obj['radeg'] = 15 * getcoord(parts[1])
-        elif parts[0] == 'Dec:':
+        elif key in ('DEC', 'DECLINATION'):
             orb.obj['dedeg'] = getcoord(parts[1])
-        elif parts[0] == 'Parallax:':
+        elif key in ('PARALLAX', 'PLX'):
             orb.obj['parallax'] = float(parts[1])
         elif parts[0] in orb.elname:
             ind = orb.elname.index(parts[0])
