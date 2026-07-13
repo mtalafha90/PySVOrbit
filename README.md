@@ -52,6 +52,16 @@ Chrome/Chromium install rather than Kaleido's managed one, set
 
 ## Notes on orbital fitting
 
+- **Solving derived quantities from any known value**: parallax,
+  distance, physical semi-major axis (AU), total mass, M1, and M2 are all
+  linked by the same physics (parallax ↔ distance ↔ a(AU) ↔ M_total ↔
+  M1/M2). By default the parallax from the uploaded file is the known
+  starting point and everything else is derived from it, but the results
+  page has a "Know one of these instead?" panel — enter any *one* of
+  these quantities (e.g. a mass from spectral typing) and the rest are
+  solved from it, without re-running the orbital fit. This only affects
+  the derived quantities; it never changes the fitted orbital elements
+  themselves.
 - **Period units**: the orbital period `P` may be supplied in days or in
   years; values above 200 are treated as days when computing physical
   masses. Everywhere else (the fit itself, phase-folding) `P` is used in

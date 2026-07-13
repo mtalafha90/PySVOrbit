@@ -71,34 +71,50 @@ def _get_el(elements, name):
             return float(r["value"])
     return None
 
-def compute_derived(elements, stats):
+# The physical quantities describing the system size/mass form a single
+# chain, each link solvable in either direction:
+#   parallax_mas <-> distance_pc <-> a_AU <-> M_total_Msun <-> (M1_Msun, M2_Msun)
+# DERIVED_QUANTITY_LABELS names every quantity a user can supply as the
+# known value, with the rest solved from it.
+DERIVED_QUANTITY_LABELS = {
+    "parallax_mas": "Parallax (mas)",
+    "distance_pc": "Distance (pc)",
+    "a_AU": "Physical semi-major axis a (AU)",
+    "M_total_Msun": "Total mass M_total (Msun)",
+    "M1_Msun": "Primary mass M1 (Msun)",
+    "M2_Msun": "Secondary mass M2 (Msun)",
+}
+
+
+def compute_derived(elements, stats, override_key=None, override_value=None):
     """
-    Compute derived quantities (distance, a_AU, masses) if possible.
-    Returns dict of values + warnings.
+    Compute derived quantities (parallax, distance, physical semi-major
+    axis, total mass, M1, M2) by solving the chain
+
+        parallax_mas <-> distance_pc <-> a_AU <-> M_total_Msun <-> (M1, M2)
+
+    from whichever single quantity is known. By default that's the
+    parallax read from the uploaded file (the original one-directional
+    behaviour: parallax -> ... -> masses). Passing override_key (one of
+    DERIVED_QUANTITY_LABELS) and override_value seeds the chain from that
+    quantity instead - e.g. a known mass from spectral typing, solved
+    backwards to the parallax/distance it implies.
+
+    Returns a dict of the resolved values (only those the chain could
+    reach) plus a "warnings" list explaining anything that couldn't be
+    computed.
     """
     out = {}
     warn = []
 
     P = _get_el(elements, "P")
-    a = _get_el(elements, "a")
+    a_arcsec = _get_el(elements, "a")
     i_deg = _get_el(elements, "i")
     e = _get_el(elements, "e")
     K1 = _get_el(elements, "K1")
     K2 = _get_el(elements, "K2")
 
-    plx_mas = None
-    if isinstance(stats, dict):
-        plx_mas = float(stats.get("parallax", 0.0) or 0.0)
-
-    # Parallax -> distance
-    if plx_mas and plx_mas > 0:
-        d_pc = 1000.0 / plx_mas
-        out["parallax_mas"] = plx_mas
-        out["distance_pc"] = d_pc
-    else:
-        warn.append("Parallax is missing/zero; cannot compute distance or physical masses.")
-
-    # Detect P unit (years vs days) – best-effort heuristic
+    # Detect P unit (years vs days) - best-effort heuristic
     P_yr = None
     if P is not None:
         if P > 200:  # likely days
@@ -109,45 +125,74 @@ def compute_derived(elements, stats):
     else:
         warn.append("P is missing; cannot compute masses.")
 
-    # Convert angular a (arcsec) to physical a (AU): a_AU = a_arcsec * d_pc
-    a_AU = None
-    if a is not None and "distance_pc" in out:
-        a_AU = a * out["distance_pc"]
-        out["a_arcsec"] = a
-        out["a_AU"] = a_AU
-    else:
-        if a is None:
-            warn.append("a is missing; cannot compute physical semimajor axis.")
-        else:
-            warn.append("Distance missing; cannot compute a_AU.")
-
-    # Total mass from Kepler: Mtot = a_AU^3 / P_yr^2  (in solar masses)
-    if a_AU is not None and P_yr is not None and P_yr > 0:
-        Mtot = (a_AU ** 3) / (P_yr ** 2)
-        out["P_yr"] = P_yr
-        out["M_total_Msun"] = Mtot
-    else:
-        warn.append("Need both a_AU and P (years) to compute total mass.")
-
-    # Mass ratio and individual masses (needs K1 and K2)
+    # Mass ratio q = M2/M1 = K1/K2 (RV amplitude is inversely proportional
+    # to mass), needed to split M_total into M1/M2 in either direction.
+    q = None
     if K1 is not None and K2 is not None and K2 != 0:
         q = K1 / K2
-        out["q_M2_over_M1"] = q
-        if "M_total_Msun" in out and q > 0:
-            M1 = out["M_total_Msun"] / (1.0 + q)
-            M2 = out["M_total_Msun"] * q / (1.0 + q)
-            out["M1_Msun"] = M1
-            out["M2_Msun"] = M2
-        else:
-            warn.append("Have K1/K2 but total mass is missing; cannot compute M1, M2.")
     else:
-        warn.append("K1/K2 not available; cannot compute individual masses (only total mass if available).")
+        warn.append("K1/K2 not available; cannot relate individual masses to the total mass.")
 
-    # Optional info
+    # Seed the chain: an explicit override, or (default) the file's parallax.
+    v = {k: None for k in DERIVED_QUANTITY_LABELS}
+    if override_key in v and override_value is not None:
+        v[override_key] = float(override_value)
+    else:
+        plx_from_file = float(stats.get("parallax", 0.0) or 0.0) if isinstance(stats, dict) else 0.0
+        if plx_from_file > 0:
+            v["parallax_mas"] = plx_from_file
+        else:
+            warn.append("Parallax is missing/zero; cannot compute distance or physical masses "
+                         "(enter a known value below to work out the rest instead).")
+
+    # Relax the chain until nothing new is resolved. 4 passes is enough to
+    # cover the longest possible path (parallax <-> ... <-> M1/M2, 4 hops)
+    # regardless of which single quantity was seeded.
+    for _ in range(4):
+        if v["distance_pc"] is None and v["parallax_mas"]:
+            v["distance_pc"] = 1000.0 / v["parallax_mas"]
+        if v["parallax_mas"] is None and v["distance_pc"]:
+            v["parallax_mas"] = 1000.0 / v["distance_pc"]
+
+        if v["a_AU"] is None and v["distance_pc"] is not None and a_arcsec:
+            v["a_AU"] = a_arcsec * v["distance_pc"]
+        if v["distance_pc"] is None and v["a_AU"] is not None and a_arcsec:
+            v["distance_pc"] = v["a_AU"] / a_arcsec
+
+        if v["M_total_Msun"] is None and v["a_AU"] is not None and P_yr:
+            v["M_total_Msun"] = v["a_AU"] ** 3 / P_yr ** 2
+        if v["a_AU"] is None and v["M_total_Msun"] is not None and P_yr:
+            v["a_AU"] = (v["M_total_Msun"] * P_yr ** 2) ** (1 / 3)
+
+        if q is not None and q > 0:
+            if v["M_total_Msun"] is None and v["M1_Msun"] is not None:
+                v["M_total_Msun"] = v["M1_Msun"] * (1.0 + q)
+            if v["M_total_Msun"] is None and v["M2_Msun"] is not None:
+                v["M_total_Msun"] = v["M2_Msun"] * (1.0 + q) / q
+            if v["M_total_Msun"] is not None:
+                if v["M1_Msun"] is None:
+                    v["M1_Msun"] = v["M_total_Msun"] / (1.0 + q)
+                if v["M2_Msun"] is None:
+                    v["M2_Msun"] = v["M_total_Msun"] * q / (1.0 + q)
+
+    if not a_arcsec:
+        warn.append("a is missing; cannot relate distance to the physical semi-major axis.")
+
+    for key in DERIVED_QUANTITY_LABELS:
+        if v[key] is not None:
+            out[key] = v[key]
+    if q is not None:
+        out["q_M2_over_M1"] = q
+    if P_yr is not None:
+        out["P_yr"] = P_yr
+    if a_arcsec is not None:
+        out["a_arcsec"] = a_arcsec
     if i_deg is not None:
         out["inclination_deg"] = i_deg
     if e is not None:
         out["eccentricity"] = e
+    if override_key in v and override_value is not None:
+        out["override_key"] = override_key
 
     out["warnings"] = warn
     return out
@@ -610,7 +655,7 @@ def run():
         fixel_map = {nm: (1 if request.form.get(f"fit_{nm}") == "on" else 0) for nm in elnames}
 
         summary = run_fit_to_dir(run_dir, uploaded_path, fixel_map)
-        return render_template("result.html", glossary=ELEMENT_GLOSSARY, **summary)
+        return render_template("result.html", glossary=ELEMENT_GLOSSARY, derived_labels=DERIVED_QUANTITY_LABELS, **summary)
 
     except Exception as e:
         tb = traceback.format_exc()
@@ -649,6 +694,67 @@ def cleanup(run_id):
         shutil.rmtree(run_dir, ignore_errors=True)
     flash("Run directory cleaned up.", "info")
     return redirect(url_for("index"))
+
+
+@app.route("/recompute/<run_id>", methods=["POST"])
+def recompute(run_id):
+    """Re-solve the derived quantities (parallax/distance/a_AU/masses) from
+    a user-supplied value instead of the file's parallax, without re-running
+    the orbital fit itself."""
+    run_dir = RUNS_DIR / run_id
+    summary_path = run_dir / "summary.json"
+    if not run_dir.exists() or not summary_path.exists():
+        flash("Run not found or its saved results have expired.", "error")
+        return redirect(url_for("index"))
+
+    try:
+        data = json.loads(summary_path.read_text())
+    except Exception:
+        flash("Could not read this run's saved results.", "error")
+        return redirect(url_for("index"))
+
+    override_key = request.form.get("override_key") or None
+    override_raw = request.form.get("override_value", "").strip()
+    override_value = None
+    if override_key and override_key not in DERIVED_QUANTITY_LABELS:
+        override_key = None
+    if override_key and override_raw:
+        try:
+            override_value = float(override_raw)
+            if override_value <= 0:
+                flash("Please enter a positive number.", "error")
+                override_key = None
+        except ValueError:
+            flash("That doesn't look like a number.", "error")
+            override_key = None
+    elif override_key and not override_raw:
+        flash("Enter a value to use for that quantity.", "error")
+        override_key = None
+
+    elements = data.get("elements", [])
+    stats = data.get("stats", {})
+    derived = compute_derived(elements, stats, override_key, override_value)
+
+    # Persist so a subsequent PDF report reflects the same override.
+    data["derived"] = derived
+    try:
+        summary_path.write_text(json.dumps(data))
+    except Exception:
+        pass
+
+    output_csv = None
+    for f in run_dir.iterdir():
+        if f.name.endswith("_output.csv"):
+            output_csv = f.name
+            break
+
+    return render_template(
+        "result.html", glossary=ELEMENT_GLOSSARY, derived_labels=DERIVED_QUANTITY_LABELS,
+        run_id=run_id, elements=elements, stats=stats, derived=derived,
+        plotly_figs=data.get("plotly_figs", []), output_csv=output_csv,
+    )
+
+
 _PDF_STYLES = getSampleStyleSheet()
 _PDF_TITLE = ParagraphStyle("PdfTitle", parent=_PDF_STYLES["Title"], fontSize=18, spaceAfter=2)
 _PDF_META = ParagraphStyle("PdfMeta", parent=_PDF_STYLES["Normal"], fontSize=9, textColor=colors.HexColor("#5a6578"))

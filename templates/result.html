@@ -123,35 +123,60 @@
           <tr><th>Quantity</th><th>Value</th></tr>
         </thead>
         <tbody>
-          {% if derived.parallax_mas is defined %}
-            <tr><td class="term" title="As read from your file">Parallax (mas)</td><td class="num">{{ "%.6g"|format(derived.parallax_mas) }}</td></tr>
-          {% endif %}
-          {% if derived.distance_pc is defined %}
-            <tr><td class="term" title="Distance = 1000 / parallax(mas), in parsecs">Distance (pc)</td><td class="num">{{ "%.6g"|format(derived.distance_pc) }}</td></tr>
-          {% endif %}
-          {% if derived.a_AU is defined %}
-            <tr><td class="term" title="The orbit's physical size: angular size × distance">a (AU)</td><td class="num">{{ "%.6g"|format(derived.a_AU) }}</td></tr>
-          {% endif %}
+          {% macro derived_row(key, label, tip) %}
+            {% if derived[key] is defined %}
+              <tr>
+                <td class="term" title="{{ tip }}">{{ label|safe }}</td>
+                <td class="num">
+                  {{ "%.6g"|format(derived[key]) }}
+                  {% if derived.override_key == key %}<span class="pill info">entered</span>{% endif %}
+                </td>
+              </tr>
+            {% endif %}
+          {% endmacro %}
+          {{ derived_row("parallax_mas", "Parallax (mas)", "As read from your file, unless entered below") }}
+          {{ derived_row("distance_pc", "Distance (pc)", "Distance = 1000 / parallax (mas)") }}
+          {{ derived_row("a_AU", "a (AU)", "The orbit's physical size: angular size × distance") }}
           {% if derived.P_yr is defined %}
             <tr><td class="term" title="Period converted to years, as used in the mass calculation">P (yr used)</td><td class="num">{{ "%.6g"|format(derived.P_yr) }}</td></tr>
           {% endif %}
-          {% if derived.M_total_Msun is defined %}
-            <tr><td class="term" title="Combined mass of both stars, from Kepler's third law (a³/P²)">M<sub>total</sub> (M☉)</td><td class="num">{{ "%.6g"|format(derived.M_total_Msun) }}</td></tr>
-          {% endif %}
+          {{ derived_row("M_total_Msun", "M<sub>total</sub> (M☉)", "Combined mass of both stars, from Kepler's third law (a³/P²)") }}
           {% if derived.q_M2_over_M1 is defined %}
             <tr><td class="term" title="Mass ratio: a star with a smaller RV swing (K) is the heavier one">q = M2/M1</td><td class="num">{{ "%.6g"|format(derived.q_M2_over_M1) }}</td></tr>
           {% endif %}
-          {% if derived.M1_Msun is defined %}
-            <tr><td class="term" title="Mass of the primary star, in solar masses">M1 (M☉)</td><td class="num">{{ "%.6g"|format(derived.M1_Msun) }}</td></tr>
-          {% endif %}
-          {% if derived.M2_Msun is defined %}
-            <tr><td class="term" title="Mass of the secondary star, in solar masses">M2 (M☉)</td><td class="num">{{ "%.6g"|format(derived.M2_Msun) }}</td></tr>
-          {% endif %}
+          {{ derived_row("M1_Msun", "M1 (M☉)", "Mass of the primary star, in solar masses") }}
+          {{ derived_row("M2_Msun", "M2 (M☉)", "Mass of the secondary star, in solar masses") }}
         </tbody>
       </table>
     {% else %}
       <div class="subtitle">Derived quantities not available.</div>
     {% endif %}
+
+    <div class="spacer"></div>
+    <details class="glossary">
+      <summary>❔ Know one of these instead? Enter it to work out the rest</summary>
+      <div class="glossary-body">
+        <div class="subtitle">
+          All of these are linked by the same physics: parallax ↔ distance ↔
+          physical size (a, AU) ↔ total mass ↔ individual masses. If you
+          don't have (or don't trust) the parallax, but you know e.g. the
+          primary's mass from its spectral type, enter that instead and
+          everything else is worked out from it.
+        </div>
+        <div class="spacer"></div>
+        <form method="POST" action="{{ url_for('recompute', run_id=run_id) }}" class="row">
+          <select name="override_key">
+            <option value="">— use parallax from file —</option>
+            {% for key, label in (derived_labels or {}).items() %}
+              <option value="{{ key }}" {% if derived is defined and derived.override_key == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <input type="number" step="any" min="0" name="override_value" placeholder="value"
+                 {% if derived is defined and derived.override_key %}value="{{ derived[derived.override_key] }}"{% endif %} />
+          <button class="btn primary" type="submit">Recalculate</button>
+        </form>
+      </div>
+    </details>
   </div>
   </div>
 <div class="card">
