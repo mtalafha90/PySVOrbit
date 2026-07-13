@@ -448,11 +448,78 @@ def orbplot_plotly():
     return figs
 
 
-def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]) -> dict:
+def _snapshot_points():
+    """Capture the full position/RV1/RV2 arrays and source labels as read
+    from the file, before restrict_points() (if any) shrinks them. Row i
+    here is always "original file row i" - the stable index used by the
+    point-selection checkboxes and by point_filter."""
+    def _copy(name, ncols):
+        n = int(backend.orb.obj.get(f"n{name}", 0))
+        if n == 0:
+            return np.zeros((0, ncols)), []
+        return getattr(backend.orb, name).copy(), list(getattr(backend.orb, f"{name}_source"))
+    pos, pos_src = _copy("pos", 6)
+    rv1, rv1_src = _copy("rv1", 3)
+    rv2, rv2_src = _copy("rv2", 3)
+    return {"pos": pos, "pos_source": pos_src, "rv1": rv1, "rv1_source": rv1_src, "rv2": rv2, "rv2_source": rv2_src}
+
+
+def _build_point_tables(full, point_filter):
+    """Per-observation data + residuals (observed minus fitted, using the
+    just-fitted backend.orb.el) for EVERY point read from the file - not
+    just the ones used in the fit - so a previously-excluded point can be
+    re-included later. `point_filter` (as passed to run_fit_to_dir) marks
+    which are currently included; a missing/None key means "all included".
+    Call after fitorb() so the residuals reflect the fit just performed.
     """
-    readinp/readcsv_custom -> apply fixel -> fitorb -> orbsave -> plots
-    All outputs written into run_dir.
+    tables = {"pos": [], "rv1": [], "rv2": []}
+    keep = point_filter or {}
+
+    pos = full["pos"]
+    if pos.shape[0] > 0:
+        t_obs, theta_obs, rho_obs, err = pos[:, 0], pos[:, 1], pos[:, 2], pos[:, 3]
+        res = backend.eph(backend.orb.el, t_obs, rho=True)
+        dtheta = (theta_obs - res[:, 0] + 180) % 360 - 180
+        drho = rho_obs - res[:, 1]
+        included = set(keep["pos"]) if keep.get("pos") is not None else None
+        src = full["pos_source"]
+        for i in range(pos.shape[0]):
+            tables["pos"].append({
+                "idx": i, "epoch": float(t_obs[i]), "theta": float(theta_obs[i]),
+                "rho": float(rho_obs[i]), "err": float(err[i]), "source": src[i] if i < len(src) else "",
+                "dtheta": float(dtheta[i]), "drho": float(drho[i]),
+                "included": included is None or i in included,
+            })
+
+    for key, col in (("rv1", 0), ("rv2", 1)):
+        arr = full[key]
+        if arr.shape[0] > 0:
+            t, rv_obs, err = arr[:, 0], arr[:, 1], arr[:, 2]
+            src = full[f"{key}_source"]
+            offset = backend.rv_offset_for_points(src, arr.shape[0])
+            rv_fit = backend.eph(backend.orb.el, t, rv=True)[:, col] + offset
+            drv = rv_obs - rv_fit
+            included = set(keep[key]) if keep.get(key) is not None else None
+            for i in range(arr.shape[0]):
+                tables[key].append({
+                    "idx": i, "epoch": float(t[i]), "rv": float(rv_obs[i]),
+                    "err": float(err[i]), "source": src[i] if i < len(src) else "", "drv": float(drv[i]),
+                    "included": included is None or i in included,
+                })
+
+    return tables
+
+
+def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int],
+                    point_filter: dict | None = None) -> dict:
+    """
+    readinp/readcsv_custom -> [restrict_points] -> apply fixel -> fitorb ->
+    orbsave -> plots. All outputs written into run_dir.
     Returns dict for templating (ALWAYS includes stats).
+
+    point_filter, if given, is a dict with any of "pos"/"rv1"/"rv2" mapped
+    to a list of row indices (into the freshly-read file, before any
+    filtering) to keep; omitted keys keep all rows of that type.
     """
     cwd = os.getcwd()
     os.chdir(run_dir)
@@ -465,6 +532,15 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
                 backend.readcsv_custom(str(uploaded_path))
             else:
                 raise RuntimeError("CSV upload not supported: backend.readcsv_custom not found in backend.py")
+
+        full_points = _snapshot_points()
+
+        if point_filter:
+            backend.restrict_points(
+                pos_keep=point_filter.get("pos"),
+                rv1_keep=point_filter.get("rv1"),
+                rv2_keep=point_filter.get("rv2"),
+            )
 
         # Apply fit/fix flags (1=fit, 0=fixed)
         for i, nm in enumerate(list(backend.orb.elname)):
@@ -554,14 +630,21 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
         except Exception:
             pass
         derived = compute_derived(elements, stats)
+        point_tables = _build_point_tables(full_points, point_filter)
 
-        # Persist the numeric results so /report/<run_id> (a separate later
-        # request) can build a full PDF without depending on the shared,
-        # possibly-since-overwritten backend.orb global.
+        # Persist the numeric results, plus enough to re-run a fit later
+        # (fixel choices, the uploaded filename, current point selection),
+        # so /report/<run_id> and /refit/<run_id> (separate later requests)
+        # work without depending on the shared, possibly-since-overwritten
+        # backend.orb global.
         try:
             (run_dir / "summary.json").write_text(json.dumps({
                 "run_id": run_dir.name, "elements": elements, "stats": stats, "derived": derived,
                 "plotly_figs": plotly_figs,  # so the PDF report can render the same plots
+                "point_tables": point_tables,
+                "fixel_map": fixel_map,
+                "uploaded_filename": uploaded_path.name,
+                "point_filter": point_filter,
             }))
         except Exception:
             pass
@@ -575,6 +658,7 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
             "plot_files": plot_files,       # optional (kept for debugging)
             "residual_file": residual_file, # still useful
             "output_csv": output_csv if output_csv_path.exists() else None,
+            "point_tables": point_tables,
         }
 
     finally:
@@ -675,6 +759,50 @@ def run():
         )
 
 
+@app.route("/refit/<run_id>", methods=["POST"])
+def refit(run_id):
+    """Re-run the fit for an existing run using only the selected data
+    points, keeping the same fit/fix parameter choices as the original run
+    (change those from the upload page instead)."""
+    run_dir = RUNS_DIR / run_id
+    summary_path = run_dir / "summary.json"
+    if not run_dir.exists() or not summary_path.exists():
+        flash("Run not found or its saved results have expired.", "error")
+        return redirect(url_for("index"))
+
+    try:
+        data = json.loads(summary_path.read_text())
+    except Exception:
+        flash("Could not read this run's saved results.", "error")
+        return redirect(url_for("index"))
+
+    uploaded_filename = data.get("uploaded_filename")
+    uploaded_path = (run_dir / uploaded_filename) if uploaded_filename else None
+    if not uploaded_path or not uploaded_path.exists():
+        flash("The originally uploaded file is no longer available for this run.", "error")
+        return redirect(url_for("index"))
+
+    fixel_map = data.get("fixel_map") or {}
+    point_tables = data.get("point_tables") or {}
+    point_filter = {}
+    for key in ("pos", "rv1", "rv2"):
+        rows = point_tables.get(key) or []
+        if not rows:
+            continue
+        point_filter[key] = [row["idx"] for row in rows if request.form.get(f"{key}_keep_{row['idx']}") == "on"]
+
+    try:
+        summary = run_fit_to_dir(run_dir, uploaded_path, fixel_map, point_filter=point_filter)
+    except Exception as e:
+        tb = traceback.format_exc()
+        return render_template(
+            "error.html", error=str(e), traceback=tb, run_id=run_id,
+            stats=default_stats(), elements=[], plot_files=[], residual_file=None, output_csv=None,
+        )
+
+    return render_template("result.html", glossary=ELEMENT_GLOSSARY, derived_labels=DERIVED_QUANTITY_LABELS, **summary)
+
+
 @app.route("/runs/<run_id>/<path:filename>")
 def run_file(run_id, filename):
     run_dir = RUNS_DIR / run_id
@@ -752,6 +880,7 @@ def recompute(run_id):
         "result.html", glossary=ELEMENT_GLOSSARY, derived_labels=DERIVED_QUANTITY_LABELS,
         run_id=run_id, elements=elements, stats=stats, derived=derived,
         plotly_figs=data.get("plotly_figs", []), output_csv=output_csv,
+        point_tables=data.get("point_tables", {}),
     )
 
 

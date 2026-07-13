@@ -37,6 +37,12 @@ class OrbitData:
         self.rv1_source = []
         self.rv2_source = []
         self.pos_source = []
+        # Row index into the originally-read file, per currently-kept row;
+        # lets restrict_points() be called repeatedly (from a fresh read
+        # each time) while point selections still refer to stable indices.
+        self.pos_orig_idx = []
+        self.rv1_orig_idx = []
+        self.rv2_orig_idx = []
         # Maps a non-reference RV source label -> index into el/elname/
         # fixel/elerr of its fitted zero-point offset (dV0), so RVs from
         # different instruments can be combined in one simultaneous fit.
@@ -180,6 +186,61 @@ def correct(data, t0):
         elif time[i] > 3000 and t0 < 3000:
             data[i, 0] = 1900 + (time[i] - 15020.31352) / 365.242198781
 
+def _rebuild_rv_offsets():
+    """(Re)build the per-instrument RV zero-point offset parameters
+    (dV0_<source>) from the current orb.rv1_source/rv2_source. Truncates
+    orb.el/elerr/fixel/elname back to the base 10 elements first (keeping
+    whatever values are already there), so this is safe to call again
+    after restrict_points() changes which sources are still present.
+    """
+    global orb
+    n_base = OrbitData.N_BASE
+    orb.el = orb.el[:n_base].copy()
+    orb.elerr = orb.elerr[:n_base].copy()
+    orb.fixel = orb.fixel[:n_base].copy()
+    orb.elname = list(orb.elname[:n_base])
+    orb.rv_offset_index = {}
+
+    all_sources = sorted(set(orb.rv1_source) | set(orb.rv2_source))
+    if len(all_sources) > 1:
+        extra_sources = all_sources[1:]  # all_sources[0] is the reference (offset fixed at 0)
+        orb.rv_offset_index = {src: n_base + k for k, src in enumerate(extra_sources)}
+        n_extra = len(extra_sources)
+        orb.el = np.concatenate([orb.el, np.zeros(n_extra)])
+        orb.elerr = np.concatenate([orb.elerr, np.zeros(n_extra)])
+        orb.fixel = np.concatenate([orb.fixel, np.ones(n_extra, dtype=int)])
+        orb.elname = orb.elname + [f"dV0_{src}" for src in extra_sources]
+        print(f"RV sources detected: {all_sources}; fitting zero-point offsets for {extra_sources} "
+              f"relative to reference source '{all_sources[0]}'.")
+
+
+def restrict_points(pos_keep=None, rv1_keep=None, rv2_keep=None):
+    """Restrict the position/RV1/RV2 arrays (and their source labels) to
+    the given row indices (None = keep all as read). Must be called after
+    readinp()/readcsv_custom() and before fitorb(); rebuilds any
+    multi-instrument RV offset parameters to match whichever sources are
+    still present among the kept points.
+    """
+    global orb
+
+    def _apply(arr, source_list, orig_idx_list, keep, n_key):
+        if keep is None or orb.obj[n_key] == 0:
+            return arr, source_list, orig_idx_list
+        idx = sorted(i for i in keep if 0 <= i < orb.obj[n_key])
+        arr = arr[idx, :] if len(idx) > 0 else np.zeros((0, arr.shape[1]))
+        source_list = [source_list[i] for i in idx] if len(source_list) == orb.obj[n_key] else source_list
+        orig_idx_list = [orig_idx_list[i] for i in idx] if len(orig_idx_list) == orb.obj[n_key] else [orig_idx_list[i] if i < len(orig_idx_list) else i for i in idx]
+        orb.obj[n_key] = len(idx)
+        return arr, source_list, orig_idx_list
+
+    orb.pos, orb.pos_source, orb.pos_orig_idx = _apply(orb.pos, orb.pos_source, orb.pos_orig_idx, pos_keep, 'npos')
+    orb.rv1, orb.rv1_source, orb.rv1_orig_idx = _apply(orb.rv1, orb.rv1_source, orb.rv1_orig_idx, rv1_keep, 'nrv1')
+    orb.rv2, orb.rv2_source, orb.rv2_orig_idx = _apply(orb.rv2, orb.rv2_source, orb.rv2_orig_idx, rv2_keep, 'nrv2')
+
+    _rebuild_rv_offsets()
+    orb.initial_el = orb.el.copy()
+
+
 # Read input file
 def readcsv_custom(fname):
     global orb
@@ -264,6 +325,9 @@ def readcsv_custom(fname):
     orb.rv1 = orb.rv1[:krv1, :] if krv1 > 0 else np.array([])
     orb.rv2 = orb.rv2[:krv2, :] if krv2 > 0 else np.array([])
     orb.pos = orb.pos[:kpos, :] if kpos > 0 else np.array([])
+    orb.rv1_orig_idx = list(range(krv1))
+    orb.rv2_orig_idx = list(range(krv2))
+    orb.pos_orig_idx = list(range(kpos))
     orb.obj['nrv1'] = krv1
     orb.obj['nrv2'] = krv2
     orb.obj['npos'] = kpos
@@ -275,21 +339,7 @@ def readcsv_custom(fname):
     if kpos > 0:
         correct(orb.pos, orb.el[1])
 
-    # RV zero-point offsets: when RVs come from more than one instrument
-    # (source label in the last CSV column), fit an additive dV0 offset for
-    # every source beyond a single reference source, so systematic
-    # zero-point differences between instruments don't bias the orbit.
-    all_sources = sorted(set(orb.rv1_source) | set(orb.rv2_source))
-    if len(all_sources) > 1:
-        extra_sources = all_sources[1:]  # all_sources[0] is the reference (offset fixed at 0)
-        orb.rv_offset_index = {src: OrbitData.N_BASE + k for k, src in enumerate(extra_sources)}
-        n_extra = len(extra_sources)
-        orb.el = np.concatenate([orb.el, np.zeros(n_extra)])
-        orb.elerr = np.concatenate([orb.elerr, np.zeros(n_extra)])
-        orb.fixel = np.concatenate([orb.fixel, np.ones(n_extra, dtype=int)])
-        orb.elname = orb.elname + [f"dV0_{src}" for src in extra_sources]
-        print(f"RV sources detected: {all_sources}; fitting zero-point offsets for {extra_sources} "
-              f"relative to reference source '{all_sources[0]}'.")
+    _rebuild_rv_offsets()
 
     orb.graph['mode'] = 1 if (krv1 > 0 or krv2 > 0) else 0
     # HM: ─── save the *initial* elements for later overlay & printing ───
@@ -360,6 +410,9 @@ def readinp(fname):
     orb.pos = orb.pos[:kpos, :] if kpos > 0 else np.array([])
     orb.rv1 = orb.rv1[:krv1, :] if krv1 > 0 else np.array([])
     orb.rv2 = orb.rv2[:krv2, :] if krv2 > 0 else np.array([])
+    orb.pos_orig_idx = list(range(kpos))
+    orb.rv1_orig_idx = list(range(krv1))
+    orb.rv2_orig_idx = list(range(krv2))
 
     if kpos > 0:
         correct(orb.pos, orb.el[1])
