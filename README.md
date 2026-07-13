@@ -52,6 +52,15 @@ Chrome/Chromium install rather than Kaleido's managed one, set
 
 ## Notes on orbital fitting
 
+- **Excluding individual data points**: the results page lists every
+  position/RV1/RV2 observation with a checkbox (rows more than 3× the
+  fit's typical residual are highlighted). Uncheck any points and click
+  "Refit with selected points" to re-run the fit on just the remaining
+  ones — no need to edit and re-upload the file. Excluded points stay
+  visible (struck through) so they can be brought back later. If
+  excluding points removes every observation from one instrument in a
+  multi-instrument CSV, that instrument's `dV0` zero-point offset
+  parameter is automatically dropped too.
 - **Solving derived quantities from any known value**: parallax,
   distance, physical semi-major axis (AU), total mass, M1, and M2 are all
   linked by the same physics (parallax ↔ distance ↔ a(AU) ↔ M_total ↔

@@ -179,6 +179,87 @@
     </details>
   </div>
   </div>
+
+{% if point_tables is defined and ((point_tables.pos and point_tables.pos|length > 0) or (point_tables.rv1 and point_tables.rv1|length > 0) or (point_tables.rv2 and point_tables.rv2|length > 0)) %}
+<div class="card">
+  <h2>Data Points</h2>
+  <div class="subtitle">
+    Uncheck any points you want excluded, then refit. Rows in
+    <span style="color:var(--danger)">red</span> are &gt; 3&times; the typical
+    (RMS) miss for that data type — worth a look, not necessarily wrong.
+  </div>
+  <div class="spacer"></div>
+
+  <form method="POST" action="{{ url_for('refit', run_id=run_id) }}">
+    {% if point_tables.pos and point_tables.pos|length > 0 %}
+      <h3>Positions ({{ point_tables.pos|length }})</h3>
+      <div class="row" style="margin:6px 0;">
+        <button class="btn" type="button" onclick="setAllChecks('pos-table', true)">Select all</button>
+        <button class="btn" type="button" onclick="setAllChecks('pos-table', false)">Select none</button>
+      </div>
+      <div class="scroll-table">
+        <table id="pos-table">
+          <thead>
+            <tr><th></th><th>Epoch</th><th>PA &theta; (&deg;)</th><th>Sep &rho; (&Prime;)</th><th>Err</th><th>Source</th><th>&Delta;&theta;</th><th>&Delta;&rho;</th></tr>
+          </thead>
+          <tbody>
+            {% for row in point_tables.pos %}
+              {% set is_outlier = stats is defined and stats.rms_theta and stats.rms_rho and (row.dtheta|abs > 3*stats.rms_theta or row.drho|abs > 3*stats.rms_rho) %}
+              <tr class="{{ 'outlier' if is_outlier }} {{ 'excluded' if not row.included }}">
+                <td class="chk-col"><input type="checkbox" name="pos_keep_{{ row.idx }}" {% if row.included %}checked{% endif %}></td>
+                <td class="num">{{ "%.4f"|format(row.epoch) }}</td>
+                <td class="num">{{ "%.4f"|format(row.theta) }}</td>
+                <td class="num">{{ "%.4f"|format(row.rho) }}</td>
+                <td class="num">{{ "%.4g"|format(row.err) }}</td>
+                <td>{{ row.source }}</td>
+                <td class="num">{{ "%.4f"|format(row.dtheta) }}</td>
+                <td class="num">{{ "%.4f"|format(row.drho) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="spacer"></div>
+    {% endif %}
+
+    {% for key, title in (("rv1","RV1 (primary)"), ("rv2","RV2 (secondary)")) %}
+      {% set rows = point_tables[key] %}
+      {% if rows and rows|length > 0 %}
+        <h3>{{ title }} ({{ rows|length }})</h3>
+        <div class="row" style="margin:6px 0;">
+          <button class="btn" type="button" onclick="setAllChecks('{{ key }}-table', true)">Select all</button>
+          <button class="btn" type="button" onclick="setAllChecks('{{ key }}-table', false)">Select none</button>
+        </div>
+        <div class="scroll-table">
+          <table id="{{ key }}-table">
+            <thead>
+              <tr><th></th><th>Epoch</th><th>RV (km/s)</th><th>Err</th><th>Source</th><th>&Delta;RV</th></tr>
+            </thead>
+            <tbody>
+              {% set rms = stats[("rms_" ~ key)] if stats is defined else none %}
+              {% for row in rows %}
+                {% set is_outlier = rms and row.drv|abs > 3*rms %}
+                <tr class="{{ 'outlier' if is_outlier }} {{ 'excluded' if not row.included }}">
+                  <td class="chk-col"><input type="checkbox" name="{{ key }}_keep_{{ row.idx }}" {% if row.included %}checked{% endif %}></td>
+                  <td class="num">{{ "%.4f"|format(row.epoch) }}</td>
+                  <td class="num">{{ "%.4f"|format(row.rv) }}</td>
+                  <td class="num">{{ "%.4g"|format(row.err) }}</td>
+                  <td>{{ row.source }}</td>
+                  <td class="num">{{ "%.4f"|format(row.drv) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="spacer"></div>
+      {% endif %}
+    {% endfor %}
+
+    <button class="btn primary" type="submit">↻ Refit with selected points</button>
+  </form>
+</div>
+{% endif %}
+
 <div class="card">
   <h2>Interactive Plots</h2>
   <div class="subtitle">Zoom/pan and adjust marker style. Click a plot to enlarge.</div>

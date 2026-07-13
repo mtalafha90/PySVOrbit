@@ -155,6 +155,15 @@
     .checklist li{ margin:4px 0; }
     .spacer{ height:10px; }
 
+    /* ---- Scrollable point-selection tables (results page) ---- */
+    .scroll-table{ max-height:360px; overflow-y:auto; border-radius:14px; }
+    .scroll-table table{ border-radius:0; }
+    .scroll-table thead th{ position:sticky; top:0; z-index:1; }
+    tr.outlier td{ color: color-mix(in srgb, var(--danger) 75%, var(--text)); }
+    tr.excluded td{ opacity:.45; text-decoration:line-through; }
+    tr.excluded.outlier td{ color:var(--muted); }
+    td.chk-col{ width:36px; text-align:center; }
+
     /* ---- Plot modal (click plot to enlarge) ---- */
     .modal{
       display:none;
@@ -274,6 +283,11 @@
     const gd = document.getElementById(divId);
     const idx = _markerTraceIndices(divId);
     Plotly.restyle(gd, {"marker.symbol": sym}, idx);
+  }
+
+  // Select-all / none for a point-selection table (results page)
+  function setAllChecks(tableId, checked){
+    document.querySelectorAll('#' + tableId + ' input[type=checkbox]').forEach(cb => cb.checked = checked);
   }
 </script>
 
