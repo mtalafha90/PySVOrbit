@@ -827,7 +827,12 @@ def report(run_id):
     obj_name = (data or {}).get("stats", {}).get("name")
     if obj_name:
         story.append(Paragraph(f"Object: {obj_name}", _PDF_META))
-    story.append(Paragraph("Developed by Dr. Mohammed H. Talafha", _PDF_META))
+    story.append(Paragraph(
+        "Python Implementation of Tokovinin’s original OrbitX code. This version, enhanced by "
+        "Prof. Mashhoor Al-Wardat and Dr. Mohammed Hussin Talafha, analyzes orbits of visual "
+        "binaries (VB) using data from the 4th Catalogue of Interferometric Measurements or SOAR "
+        "telescope, spectroscopic binaries (SB) using SB9 catalogue data, or any binary system "
+        "with both interferometric and spectroscopic measurements.", _PDF_META))
     story.append(Spacer(1, 0.5*cm))
 
     if data:
