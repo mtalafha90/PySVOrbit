@@ -84,7 +84,7 @@
       <table>
         <thead>
           <tr>
-            <th>Parameter</th><th>Value</th>
+            <th>Parameter</th><th>Value</th><th>Unit</th>
             <th><span class="term" title="Uncertainty on the fitted value (1-sigma). Only meaningful when Fit? = Yes.">Error</span></th>
             <th><span class="term" title="Yes = the tool solved for this value. No = it was held fixed at the value from your file.">Fit?</span></th>
           </tr>
@@ -94,6 +94,7 @@
             <tr>
               <td><b class="term" title="{{ glossary.get(row.name, '') }}">{{ row.name }}</b></td>
               <td class="num">{{ "%.10g"|format(row.value) }}</td>
+              <td>{{ row.unit if row.unit is defined else "" }}{% if row.name in ("P","T") %}<span class="term" title="Guessed from the value's size (>200 means days); the tool doesn't otherwise know your file's time convention.">*</span>{% endif %}</td>
               <td class="num">{{ "%.3g"|format(row.err) if row.fit==1 else "—" }}</td>
               <td>{{ "Yes" if row.fit==1 else "No" }}</td>
             </tr>

@@ -71,6 +71,21 @@ def _get_el(elements, name):
             return float(r["value"])
     return None
 
+
+def _element_unit(name, P_value):
+    """Best-effort display unit for an orbital element. P/T's time unit
+    isn't stated by the input file, so it's inferred with the same
+    P>200-is-days heuristic used elsewhere for mass calculations."""
+    if name in ("P", "T"):
+        return "d" if (P_value is not None and P_value > 200) else "yr"
+    if name == "a":
+        return '"'
+    if name in ("W", "w", "i"):
+        return "°"
+    if name in ("K1", "K2", "V0") or name.startswith("dV0_"):
+        return "km/s"
+    return ""
+
 # The physical quantities describing the system size/mass form a single
 # chain, each link solvable in either direction:
 #   parallax_mas <-> distance_pc <-> a_AU <-> M_total_Msun <-> (M1_Msun, M2_Msun)
@@ -196,10 +211,47 @@ def compute_derived(elements, stats, override_key=None, override_value=None):
 
     out["warnings"] = warn
     return out
+def _residual_panel(t_obs, resid, name, symbol, axis_label, title):
+    """One residual panel: scatter vs epoch + a side boxplot. Split out as
+    its own figure so Δρ and Δθ can be shown/downloaded independently."""
+    fig = make_subplots(
+        rows=1, cols=2,
+        column_widths=[0.78, 0.22],
+        horizontal_spacing=0.06,
+        specs=[[{"type": "scatter"}, {"type": "box"}]],
+        subplot_titles=(None, "residuals"),
+    )
+    fig.add_trace(
+        go.Scatter(x=t_obs, y=resid, mode="markers", name=axis_label, marker=dict(size=8, symbol=symbol)),
+        row=1, col=1,
+    )
+    fig.add_hline(y=0, row=1, col=1)
+    fig.add_trace(go.Box(y=resid, name=axis_label, boxpoints=False), row=1, col=2)
+
+    fig.update_yaxes(title_text=axis_label, row=1, col=1)
+    fig.update_xaxes(title_text="Epoch (year)", row=1, col=1)
+
+    y = [float(np.nanmin(resid)), float(np.nanmax(resid))]
+    if np.isfinite(y).all() and y[0] != y[1]:
+        pad = 0.08 * (y[1] - y[0])
+        fig.update_yaxes(range=[y[0] - pad, y[1] + pad], row=1, col=1)
+        fig.update_yaxes(range=[y[0] - pad, y[1] + pad], row=1, col=2)
+
+    fig.update_layout(
+        title=f"{title} vs Epoch: {name}",
+        height=420,
+        legend=dict(orientation="h"),
+        margin=dict(l=40, r=20, t=70, b=40),
+    )
+    return fig
+
+
 def residuals_plotly(name: str):
     """
-    Plotly version of backend.residual_plots():
-    Δρ and Δθ vs epoch, plus side boxplots (same structure as PDF).
+    Two Plotly figures - Δρ residuals and Δθ residuals, each vs epoch with
+    a side boxplot - so they can be viewed/downloaded as separate panels
+    instead of one combined 4-quadrant figure.
+    Returns (fig_rho, fig_theta), or None if there's no position data.
     """
     if int(backend.orb.obj.get("npos", 0)) <= 0:
         return None
@@ -218,74 +270,9 @@ def residuals_plotly(name: str):
     dtheta = (dtheta + 180) % 360 - 180   # wrap to [-180,180)
     drho = rho_obs - rho_fit
 
-    fig = make_subplots(
-        rows=2, cols=2,
-        column_widths=[0.78, 0.22],
-        row_heights=[0.5, 0.5],
-        horizontal_spacing=0.06,
-        vertical_spacing=0.10,
-        shared_xaxes=True,
-        specs=[
-            [{"type": "scatter"}, {"type": "box"}],
-            [{"type": "scatter"}, {"type": "box"}],
-        ],
-        subplot_titles=(None, "ρ residuals", None, "θ residuals")
-    )
-
-    # Δρ vs epoch (top-left)
-    fig.add_trace(
-        go.Scatter(
-            x=t_obs, y=drho,
-            mode="markers",
-            name="Δρ",
-            marker=dict(size=8, symbol="triangle-up")
-        ),
-        row=1, col=1
-    )
-    fig.add_hline(y=0, row=1, col=1)
-
-    # Δθ vs epoch (bottom-left)
-    fig.add_trace(
-        go.Scatter(
-            x=t_obs, y=dtheta,
-            mode="markers",
-            name="Δθ",
-            marker=dict(size=8, symbol="star")
-        ),
-        row=2, col=1
-    )
-    fig.add_hline(y=0, row=2, col=1)
-
-    # Boxplots (right column)
-    fig.add_trace(go.Box(y=drho, name="Δρ", boxpoints=False), row=1, col=2)
-    fig.add_trace(go.Box(y=dtheta, name="Δθ", boxpoints=False), row=2, col=2)
-
-    # Axis labels (match PDF intention)
-    fig.update_yaxes(title_text="Δρ (arcsec)", row=1, col=1)
-    fig.update_yaxes(title_text="Δθ (deg)", row=2, col=1)
-    fig.update_xaxes(title_text="Epoch (year)", row=2, col=1)
-
-    # Keep right boxplots aligned vertically with left panels
-    # by matching y-ranges
-    y1 = [float(np.nanmin(drho)), float(np.nanmax(drho))]
-    y2 = [float(np.nanmin(dtheta)), float(np.nanmax(dtheta))]
-    if np.isfinite(y1).all() and y1[0] != y1[1]:
-        pad = 0.08 * (y1[1] - y1[0])
-        fig.update_yaxes(range=[y1[0]-pad, y1[1]+pad], row=1, col=1)
-        fig.update_yaxes(range=[y1[0]-pad, y1[1]+pad], row=1, col=2)
-    if np.isfinite(y2).all() and y2[0] != y2[1]:
-        pad = 0.08 * (y2[1] - y2[0])
-        fig.update_yaxes(range=[y2[0]-pad, y2[1]+pad], row=2, col=1)
-        fig.update_yaxes(range=[y2[0]-pad, y2[1]+pad], row=2, col=2)
-
-    fig.update_layout(
-        title=f"Residuals (Δρ, Δθ) vs Epoch: {name}",
-        height=620,
-        legend=dict(orientation="h"),
-        margin=dict(l=40, r=20, t=70, b=40),
-    )
-
-    return fig
+    fig_rho = _residual_panel(t_obs, drho, name, "triangle-up", "Δρ (arcsec)", "Δρ residuals")
+    fig_theta = _residual_panel(t_obs, dtheta, name, "star", "Δθ (deg)", "Δθ residuals")
+    return fig_rho, fig_theta
 
 def orbplot_plotly():
     """
@@ -441,10 +428,12 @@ def orbplot_plotly():
         )
         figs.append({"title": "RV vs Phase", "fig_json": json.dumps(fig3, cls=PlotlyJSONEncoder)})
 
-    # ---------- Residuals (Interactive) ----------
-    fig_res = residuals_plotly(name)
-    if fig_res is not None:
-        figs.append({"title": "Residuals (Δρ & Δθ)", "fig_json": json.dumps(fig_res, cls=PlotlyJSONEncoder)})
+    # ---------- Residuals (Interactive), as two separate panels ----------
+    res_figs = residuals_plotly(name)
+    if res_figs is not None:
+        fig_rho, fig_theta = res_figs
+        figs.append({"title": "Residuals: Δρ (separation)", "fig_json": json.dumps(fig_rho, cls=PlotlyJSONEncoder)})
+        figs.append({"title": "Residuals: Δθ (position angle)", "fig_json": json.dumps(fig_theta, cls=PlotlyJSONEncoder)})
     return figs
 
 
@@ -581,14 +570,15 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
 
         residual_file = None
         if int(backend.orb.obj.get("npos", 0)) > 0 and hasattr(backend, "residual_plots"):
-            fig = backend.residual_plots()
-            p = run_dir / "residuals.png"
-            save_fig(fig, p)
-            residual_file = p.name
+            fig_rho, fig_theta = backend.residual_plots()
+            save_fig(fig_rho, run_dir / "residuals_rho.png")
+            save_fig(fig_theta, run_dir / "residuals_theta.png")
+            residual_file = "residuals_rho.png"  # kept for backward compat; see plot_files for both
 
         # Elements table
         elements = []
         elerr = getattr(backend.orb, "elerr", [0.0] * len(list(backend.orb.elname)))
+        P_value = float(backend.orb.el[0]) if len(backend.orb.el) > 0 else None
         for i, nm in enumerate(list(backend.orb.elname)):
             elements.append(
                 {
@@ -596,6 +586,7 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
                     "value": float(backend.orb.el[i]),
                     "err": float(elerr[i]) if i < len(elerr) else 0.0,
                     "fit": int(backend.orb.fixel[i]),
+                    "unit": _element_unit(nm, P_value),
                 }
             )
 
@@ -974,11 +965,11 @@ def report(run_id):
         elements = data.get("elements", [])
         if elements:
             story.append(Paragraph("Orbital Elements", _PDF_H2))
-            rows = [["Parameter", "Value", "Error", "Fit?"]]
+            rows = [["Parameter", "Value", "Unit", "Error", "Fit?"]]
             for row in elements:
                 err = f'{row["err"]:.3g}' if row.get("fit") == 1 else "—"
-                rows.append([row["name"], f'{row["value"]:.10g}', err, "Yes" if row.get("fit") == 1 else "No"])
-            story.append(_pdf_table(rows, col_widths=[3.5*cm, 5*cm, 4*cm, 2.5*cm]))
+                rows.append([row["name"], f'{row["value"]:.10g}', row.get("unit", ""), err, "Yes" if row.get("fit") == 1 else "No"])
+            story.append(_pdf_table(rows, col_widths=[3*cm, 4.3*cm, 2*cm, 3.2*cm, 2*cm]))
 
             story.append(Paragraph("What these mean", _PDF_H3))
             gloss_rows = [["Symbol", "Meaning"]]
@@ -1065,8 +1056,9 @@ def report(run_id):
 
     if not plots_added:
         plot_files = sorted(run_dir.glob("plot_*.png"))
-        if (run_dir / "residuals.png").exists():
-            plot_files.append(run_dir / "residuals.png")
+        for name in ("residuals_rho.png", "residuals_theta.png", "residuals.png"):  # last is pre-split runs
+            if (run_dir / name).exists():
+                plot_files.append(run_dir / name)
         if plot_files:
             story.append(PageBreak())
             story.append(Paragraph("Plots", _PDF_H2))
