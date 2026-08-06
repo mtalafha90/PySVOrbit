@@ -855,11 +855,22 @@ def fitorb(rms_only=False):
             reduced_chi2 = chi2 / dof
             print(f"Chi-squared: {chi2:.4f}, Reduced Chi-squared: {reduced_chi2:.4f}")
 
+            # alleph() returns derivatives of the raw model prediction, but the
+            # quantity actually minimised above is the *weighted* residual
+            # (diff / err). The covariance must therefore be built from the
+            # weighted Jacobian, i.e. (J^T W J)^-1 with W = diag(1/sigma^2),
+            # which is what dividing each row by its sigma achieves. Using the
+            # unweighted J treats every observation as equally precise and
+            # gives badly wrong uncertainties whenever the data are
+            # heterogeneous: on the GL765.2 combined fit (arcsec-level
+            # astrometry alongside km/s radial velocities) it inflated
+            # sigma(a) by a factor of ~29 and understated sigma(W) by ~5.
             J = np.array([alleph(par, i)[1:] for i in range(n)])
+            Jw = J / err[:, None]
             print(f"Jacobian shape: {J.shape}")
 
             try:
-                JTJ = J.T @ J
+                JTJ = Jw.T @ Jw
                 print(f"JTJ condition number: {np.linalg.cond(JTJ):.2e}")
                 cov = np.linalg.inv(JTJ) * reduced_chi2
                 errors = np.sqrt(np.diag(cov))
@@ -868,7 +879,7 @@ def fitorb(rms_only=False):
             except np.linalg.LinAlgError as e:
                 print(f"Error computing covariance: {e}")
                 print("Using approximate errors")
-                orb.elerr[selfit] = np.abs(J.T @ result.fun) * np.sqrt(reduced_chi2) / n
+                orb.elerr[selfit] = np.abs(Jw.T @ result.fun) * np.sqrt(reduced_chi2) / n
         else:
             print("Warning: Not enough degrees of freedom for error estimation")
             orb.elerr[selfit] = np.zeros(len(selfit))
