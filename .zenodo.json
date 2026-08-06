@@ -23,6 +23,13 @@
     "astrometry",
     "radial velocities"
   ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/mtalafha90/PySVOrbit",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ],
   "access_right": "open",
   "license": "mit"
 }

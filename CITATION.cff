@@ -14,7 +14,7 @@ authors:
     given-names: Shaikha N.
     affiliation: "Research Institute of Sciences and Engineering, University of Sharjah"
 license: MIT
-repository-code: "https://github.com/mtalafha90/rvorbitwebpage"
+repository-code: "https://github.com/mtalafha90/PySVOrbit"
 url: "https://pysvorbit.onrender.com/"
 abstract: >-
   PySVOrbit fits Keplerian orbits of binary stars to relative astrometry
