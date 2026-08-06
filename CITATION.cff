@@ -13,6 +13,9 @@ authors:
   - family-names: Alshamsi
     given-names: Shaikha N.
     affiliation: "Research Institute of Sciences and Engineering, University of Sharjah"
+version: "1.0.0"
+doi: 10.5281/zenodo.21830266
+date-released: "2026-08-06"
 license: MIT
 repository-code: "https://github.com/mtalafha90/PySVOrbit"
 url: "https://pysvorbit.onrender.com/"
@@ -26,7 +29,3 @@ keywords:
   - orbit determination
   - astrometry
   - radial velocities
-# TODO before submission: add the archived release DOI once the Zenodo
-# deposit exists, as
-#   doi: 10.5281/zenodo.XXXXXXX
-# and set version/date-released to match that release.
