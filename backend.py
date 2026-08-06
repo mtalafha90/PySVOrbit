@@ -380,6 +380,18 @@ def readinp(fname):
         parts = line.split()
         if not parts:
             continue
+        # An element line may be prefixed with '*' to hold that element fixed
+        # during the fit, written either as '*K1 0.0' or '* K1 0.0'. Strip the
+        # marker off the name token, otherwise '*K1' fails the elname lookup
+        # below, the element is silently dropped (keeping its initial value of
+        # zero) AND it stays free -- so an astrometry-only file ends up fitting
+        # K1/K2/V0 against no radial velocities at all.
+        if parts[0] == '*':
+            parts = parts[1:]
+            if not parts:
+                continue
+        elif parts[0].startswith('*'):
+            parts = [parts[0][1:]] + parts[1:]
         # Normalize the key for metadata matching (case/period/colon
         # insensitive, e.g. 'R.A.:', 'ra:' and 'RA:' all match), but leave
         # parts[0] itself untouched for the orbital-element check below,
@@ -755,6 +767,11 @@ def alleph(params, i):
     # instead so CF2 = 1 - SF^2 in eph() never goes negative (-> NaN).
     e_step = e if el0[2] + e < 0.999 else -e
     del_vals = [e * el0[0], e * el0[0], e_step, e * el0[3], 1, 1, 1, e * el0[7], e * el0[8], e * el0[7]]
+    # These steps are relative to the current element value, so an element
+    # sitting at exactly zero (K1/K2/V0 in an astrometry-only file, say) would
+    # give a step of zero and divide by zero below, filling the Jacobian with
+    # NaNs. Fall back to a small absolute step in that case.
+    del_vals = [d if abs(d) > 1e-12 else 1e-6 for d in del_vals]
 
     def rv_offset(source):
         idx = orb.rv_offset_index.get(source)
@@ -869,9 +886,25 @@ def fitorb(rms_only=False):
             Jw = J / err[:, None]
             print(f"Jacobian shape: {J.shape}")
 
+            # A free element that no observation actually responds to leaves an
+            # all-zero Jacobian column and makes the normal matrix singular.
+            # np.linalg.inv does not reliably raise for this -- it can return
+            # enormous meaningless numbers instead -- so name the offending
+            # elements explicitly rather than reporting nonsense error bars.
+            dead = [k for k in range(Jw.shape[1]) if not np.any(np.abs(Jw[:, k]) > 0)]
+            if dead:
+                print("Warning: no observation constrains "
+                      + ", ".join(orb.elname[selfit[k]] for k in dead)
+                      + " -- uncertainties for these are undefined. Hold them fixed "
+                        "(prefix the element with '*' in a .inp file) and refit.")
+
             try:
                 JTJ = Jw.T @ Jw
-                print(f"JTJ condition number: {np.linalg.cond(JTJ):.2e}")
+                cond = np.linalg.cond(JTJ)
+                print(f"JTJ condition number: {cond:.2e}")
+                if not np.isfinite(cond) or cond > 1.0 / np.finfo(float).eps:
+                    raise np.linalg.LinAlgError(
+                        f"normal matrix is effectively singular (condition number {cond:.2e})")
                 cov = np.linalg.inv(JTJ) * reduced_chi2
                 errors = np.sqrt(np.diag(cov))
                 orb.elerr[selfit] = errors
