@@ -86,3 +86,30 @@ Chrome/Chromium install rather than Kaleido's managed one, set
 - **Coordinates**: `RA`/`Dec` accept either plain decimal (hours/degrees)
   or sexagesimal, space- or colon-separated (e.g. `12 34 33.1` or
   `-45:30:00`).
+
+## Tests
+
+The fitting engine has a test suite covering the Kepler solver, the
+ephemeris, input parsing, the derived masses and the covariance estimate,
+plus end-to-end fits of the two bundled example files:
+
+```bash
+pip install -r requirements.txt pytest
+pytest tests/ -v
+```
+
+Several tests are regression tests for faults found in review: the `*`
+prefix that holds an element fixed in `.inp` files, the error-weighted
+Jacobian used for the covariance, and the finite-difference step for
+elements whose value is zero. They run on every push and pull request via
+GitHub Actions (`.github/workflows/tests.yml`) against Python 3.10, 3.11
+and 3.12.
+
+## Citing
+
+See `CITATION.cff`. Please cite both the accompanying paper and the
+archived release.
+
+## Licence
+
+MIT. See `LICENSE`.

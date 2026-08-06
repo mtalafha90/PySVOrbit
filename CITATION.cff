@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+title: "PySVOrbit: A Python Package for Combined Spectroscopic and Visual Orbit Fitting for Binary Stars"
+message: "If you use this software, please cite both the software and the accompanying paper."
+type: software
+authors:
+  - family-names: Al-Wardat
+    given-names: Mashhoor A.
+    affiliation: "Department of Applied Physics and Astronomy, University of Sharjah"
+  - family-names: Talafha
+    given-names: Mohammed H.
+    affiliation: "Research Institute of Sciences and Engineering, University of Sharjah"
+    email: mtalafha901@gmail.com
+  - family-names: Alshamsi
+    given-names: Shaikha N.
+    affiliation: "Research Institute of Sciences and Engineering, University of Sharjah"
+license: MIT
+repository-code: "https://github.com/mtalafha90/rvorbitwebpage"
+url: "https://pysvorbit.onrender.com/"
+abstract: >-
+  PySVOrbit fits Keplerian orbits of binary stars to relative astrometry
+  and radial-velocity measurements, jointly or separately, by weighted
+  non-linear least squares, and derives the associated dynamical masses.
+keywords:
+  - astronomy
+  - binary stars
+  - orbit determination
+  - astrometry
+  - radial velocities
+# TODO before submission: add the archived release DOI once the Zenodo
+# deposit exists, as
+#   doi: 10.5281/zenodo.XXXXXXX
+# and set version/date-released to match that release.

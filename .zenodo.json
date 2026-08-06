@@ -1,0 +1,28 @@
+{
+  "title": "PySVOrbit: A Python Package for Combined Spectroscopic and Visual Orbit Fitting for Binary Stars",
+  "description": "PySVOrbit fits Keplerian orbits of binary stars to relative astrometry and radial-velocity measurements, jointly or separately, by weighted non-linear least squares, and derives the associated dynamical masses. It reads classical .inp files and CSV variants, supports visual-only, spectroscopic-only and combined fits, and provides a browser-based interface.",
+  "upload_type": "software",
+  "creators": [
+    {
+      "name": "Al-Wardat, Mashhoor A.",
+      "affiliation": "University of Sharjah"
+    },
+    {
+      "name": "Talafha, Mohammed H.",
+      "affiliation": "University of Sharjah"
+    },
+    {
+      "name": "Alshamsi, Shaikha N.",
+      "affiliation": "University of Sharjah"
+    }
+  ],
+  "keywords": [
+    "astronomy",
+    "binary stars",
+    "orbit determination",
+    "astrometry",
+    "radial velocities"
+  ],
+  "access_right": "open",
+  "license": "mit"
+}
