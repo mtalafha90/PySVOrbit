@@ -3,7 +3,7 @@
 **A Python package for combined spectroscopic and visual orbit fitting for
 binary stars.**
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21830266.svg)](https://doi.org/10.5281/zenodo.21830266)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21833307.svg)](https://doi.org/10.5281/zenodo.21833307)
 [![Tests](https://github.com/mtalafha90/PySVOrbit/actions/workflows/tests.yml/badge.svg)](https://github.com/mtalafha90/PySVOrbit/actions/workflows/tests.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -166,8 +166,8 @@ cited in its place.
 
 > Al-Wardat, M. A., Talafha, M. H., & Alshamsi, S. N. (2026).
 > *PySVOrbit: A Python Package for Combined Spectroscopic and Visual Orbit
-> Fitting for Binary Stars* (version 1.0.0). Zenodo.
-> <https://doi.org/10.5281/zenodo.21830266>
+> Fitting for Binary Stars* (version 1.0.1). Zenodo.
+> <https://doi.org/10.5281/zenodo.21833307>
 
 ```bibtex
 @software{alwardat_pysvorbit_software_2026,
@@ -176,11 +176,11 @@ cited in its place.
                Alshamsi, Shaikha N.},
   title     = {{PySVOrbit}: A Python Package for Combined Spectroscopic
                and Visual Orbit Fitting for Binary Stars},
-  version   = {1.0.0},
+  version   = {1.0.1},
   year      = {2026},
   publisher = {Zenodo},
-  doi       = {10.5281/zenodo.21830266},
-  url       = {https://doi.org/10.5281/zenodo.21830266}
+  doi       = {10.5281/zenodo.21833307},
+  url       = {https://doi.org/10.5281/zenodo.21833307}
 }
 
 @article{alwardat_pysvorbit_paper_2026,

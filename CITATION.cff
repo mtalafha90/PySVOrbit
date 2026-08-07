@@ -13,8 +13,8 @@ authors:
   - family-names: Alshamsi
     given-names: Shaikha N.
     affiliation: "Research Institute of Sciences and Engineering, University of Sharjah"
-version: "1.0.0"
-doi: 10.5281/zenodo.21830266
+version: "1.0.1"
+doi: 10.5281/zenodo.21833307
 date-released: "2026-08-06"
 license: MIT
 repository-code: "https://github.com/mtalafha90/PySVOrbit"
