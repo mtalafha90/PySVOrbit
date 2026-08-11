@@ -870,19 +870,15 @@ def fitorb(rms_only=False):
             reduced_chi2 = chi2 / dof
             print(f"Chi-squared: {chi2:.4f}, Reduced Chi-squared: {reduced_chi2:.4f}")
 
-            # alleph() returns derivatives of the raw model prediction, but the
-            # quantity actually minimised above is the *weighted* residual
-            # (diff / err). The covariance must therefore be built from the
-            # weighted Jacobian, i.e. (J^T W J)^-1 with W = diag(1/sigma^2),
-            # which is what dividing each row by its sigma achieves. Using the
-            # unweighted J treats every observation as equally precise and
-            # gives badly wrong uncertainties whenever the data are
-            # heterogeneous: on the GL765.2 combined fit (arcsec-level
-            # astrometry alongside km/s radial velocities) it inflated
-            # sigma(a) by a factor of ~29 and understated sigma(W) by ~5.
-            J = np.array([alleph(par, i)[1:] for i in range(n)])
-            Jw = J / err[:, None]
-            print(f"Jacobian shape: {J.shape}")
+            # least_squares() minimises the standardised residual vector
+            # r_k = (y_k - f_k) / sigma_k. result.jac is therefore already
+            # the Jacobian of those standardised residuals. Treat the quoted
+            # measurement uncertainties as absolute 1-sigma errors and use
+            # the local covariance C = (J_r^T J_r)^-1 directly; reduced chi2
+            # remains a goodness-of-fit diagnostic and is not used to rescale
+            # the parameter covariance.
+            Jw = result.jac
+            print(f"Jacobian shape: {Jw.shape}")
 
             # A free element that no observation actually responds to leaves an
             # all-zero Jacobian column and makes the normal matrix singular.
@@ -903,14 +899,14 @@ def fitorb(rms_only=False):
                 if not np.isfinite(cond) or cond > 1.0 / np.finfo(float).eps:
                     raise np.linalg.LinAlgError(
                         f"normal matrix is effectively singular (condition number {cond:.2e})")
-                cov = np.linalg.inv(JTJ) * reduced_chi2
+                cov = np.linalg.inv(JTJ)
                 errors = np.sqrt(np.diag(cov))
                 orb.elerr[selfit] = errors
-                print("Covariance matrix computed successfully")
+                print("Covariance matrix computed successfully (not rescaled by reduced chi-square)")
             except np.linalg.LinAlgError as e:
                 print(f"Error computing covariance: {e}")
-                print("Using approximate errors")
-                orb.elerr[selfit] = np.abs(Jw.T @ result.fun) * np.sqrt(reduced_chi2) / n
+                print("Using approximate unscaled errors")
+                orb.elerr[selfit] = np.abs(Jw.T @ result.fun) / n
         else:
             print("Warning: Not enough degrees of freedom for error estimation")
             orb.elerr[selfit] = np.zeros(len(selfit))
