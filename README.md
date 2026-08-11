@@ -37,15 +37,27 @@ An interactive version runs in the browser at
 
 ## Installation
 
-Python 3.10 or newer is required.
+Python 3.10 or newer is required. PySVOrbit now uses standard Python package
+metadata in `pyproject.toml`, so the numerical library can be installed directly
+from a checkout:
 
 ```bash
 git clone https://github.com/mtalafha90/PySVOrbit.git
 cd PySVOrbit
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install .
 ```
+
+For the browser interface and PDF/report dependencies, install the optional web
+extra instead:
+
+```bash
+pip install ".[web]"
+```
+
+The historical `requirements.txt` is retained for deployment compatibility,
+but `pyproject.toml` is the package metadata used by `pip install .`.
 
 ## Usage
 
@@ -69,23 +81,24 @@ The fitting engine can be driven directly, which is the route to take for
 batch work or for reproducing a published solution:
 
 ```python
-import backend
+import pysvorbit
 
-backend.readinp("static/examples/GL765_Test1.inp")
-backend.fitorb()
+pysvorbit.readinp("static/examples/GL765_Test1.inp")
+pysvorbit.fitorb()
 
-for name, value, error in zip(backend.orb.elname,
-                              backend.orb.el,
-                              backend.orb.elerr):
+for name, value, error in zip(pysvorbit.orb.elname,
+                              pysvorbit.orb.el,
+                              pysvorbit.orb.elerr):
     print(f"{name:>6} = {value:12.6f} +/- {error:.6f}")
 
-backend.orbsave()   # writes <name>_output.csv to the working directory
+pysvorbit.orbsave()   # writes <name>_output.csv to the working directory
 ```
 
-Note that `backend` holds the current system in a single module-level
-object, `backend.orb`. One fit is therefore in progress at any one time:
-call `readinp()` again to start a new system, and do not run fits
-concurrently in the same process.
+The legacy `import backend` interface remains available for backward
+compatibility. The public `pysvorbit` module is a thin facade over that same
+engine, so both names operate on the same module-level orbit object. One fit is
+therefore in progress at any one time: call `readinp()` again to start a new
+system, and do not run fits concurrently in the same process.
 
 ## Input formats
 
@@ -140,7 +153,7 @@ degrees) or sexagesimal, separated by spaces or colons — `12 34 33.1` and
 ## Tests
 
 ```bash
-pip install -r requirements.txt pytest
+pip install ".[test]"
 pytest tests/ -v
 ```
 
