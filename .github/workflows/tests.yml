@@ -39,6 +39,11 @@ jobs:
           MPLBACKEND: Agg
         run: python scripts/covariance_report.py
 
+      - name: Optimizer effort diagnostics
+        env:
+          MPLBACKEND: Agg
+        run: python scripts/optimizer_diagnostics.py
+
       - name: Check the web application imports
         env:
           MPLBACKEND: Agg
