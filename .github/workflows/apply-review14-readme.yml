@@ -1,0 +1,38 @@
+name: apply reviewer item 14 README
+
+on:
+  push:
+    branches: [agent/modern-packaging]
+    paths:
+      - 'review14-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/modern-packaging
+          fetch-depth: 0
+      - name: Apply README packaging update
+        run: python tools/apply_item14_readme.py
+      - name: Verify README
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          t=Path('README.md').read_text()
+          assert 'pip install .' in t
+          assert 'pip install ".[web]"' in t
+          assert 'import pysvorbit' in t
+          assert 'pip install ".[test]"' in t
+          PY
+      - name: Commit README
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m 'Document package installation' || exit 0
+          git push origin HEAD:agent/modern-packaging
