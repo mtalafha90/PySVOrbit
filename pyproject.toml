@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pysvorbit"
+version = "1.0.1"
+description = "Combined spectroscopic and visual orbit fitting for binary stars"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Mashhoor A. Al-Wardat"},
+  {name = "Mohammed H. Talafha"},
+  {name = "Shaikha N. Alshamsi"},
+]
+keywords = ["binary stars", "orbit fitting", "astrometry", "radial velocity"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Astronomy",
+]
+dependencies = [
+  "numpy",
+  "pandas",
+  "matplotlib",
+  "scipy",
+]
+
+[project.optional-dependencies]
+web = [
+  "flask",
+  "gunicorn",
+  "reportlab",
+  "plotly",
+  "kaleido",
+]
+test = [
+  "pytest",
+]
+
+[project.urls]
+Homepage = "https://github.com/mtalafha90/PySVOrbit"
+Repository = "https://github.com/mtalafha90/PySVOrbit"
+Issues = "https://github.com/mtalafha90/PySVOrbit/issues"
+
+[tool.setuptools]
+py-modules = ["backend", "pysvorbit"]
