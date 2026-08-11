@@ -7,6 +7,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import backend
 
+# Temporary CI report used to verify the manuscript values after the
+# absolute-error covariance change on current main.
 backend.orbplot = lambda *args, **kwargs: None
 EXAMPLE = "static/examples/GL765_Test1.inp"
 
@@ -40,8 +42,6 @@ def report_combined_derived():
     cov = np.linalg.inv(_last_result.jac.T @ _last_result.jac)
     rng = np.random.default_rng(20260811)
     draws = rng.multivariate_normal(backend.orb.el[:10], cov, size=200000)
-    # The local Gaussian approximation is very tight for this fit; retain only
-    # physically valid samples in case a tail crosses a Keplerian boundary.
     draws = draws[(draws[:, 0] > 0) & (draws[:, 2] >= 0) & (draws[:, 2] < 1)]
 
     P = draws[:, 0]
