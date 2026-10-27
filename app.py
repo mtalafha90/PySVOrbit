@@ -4,23 +4,39 @@ import shutil
 import traceback
 import io
 from pathlib import Path
-import math
 import plotly.graph_objects as go
 import json
 from plotly.utils import PlotlyJSONEncoder
 import numpy as np
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    send_from_directory,
+    flash,
+)
 from flask import send_file
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage, PageBreak
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer,
+    Image as RLImage,
+    PageBreak,
+)
 from werkzeug.utils import secure_filename
 from plotly.subplots import make_subplots
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import backend  # your original code renamed to backend.py
@@ -30,8 +46,16 @@ RUNS_DIR = APP_DIR / "runs"
 RUNS_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".inp", ".csv", ".txt"}
-
-
+SAMPLE_FILES = {
+    "synthetic": "example_visual_binary.inp",
+    "gl765": "GL765_Test1.inp",
+    "hd_new": "HD_New.inp",
+    "hip12780": "HIP12780 _FIN379_Parallax1.inp",
+    "hip51360": "HIP51360.inp",
+    "hip53206": "HIP53206.inp",
+    "hip72217_p1": "HIP72217_parallax1.inp",
+    "hip72217_p2": "HIP72217_parallax2.inp",
+}
 def allowed_file(filename: str) -> bool:
     return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
 
@@ -40,6 +64,7 @@ def save_fig(fig, path: Path):
     fig.savefig(path, dpi=160, bbox_inches="tight")
     try:
         import matplotlib.pyplot as plt
+
         plt.close(fig)
     except Exception:
         pass
@@ -85,6 +110,7 @@ def _element_unit(name, P_value):
     if name in ("K1", "K2", "V0") or name.startswith("dV0_"):
         return "km/s"
     return ""
+
 
 # The physical quantities describing the system size/mass form a single
 # chain, each link solvable in either direction:
@@ -134,7 +160,9 @@ def compute_derived(elements, stats, override_key=None, override_value=None):
     if P is not None:
         if P > 200:  # likely days
             P_yr = P / 365.25
-            warn.append("Detected P looks like days; converted to years for mass calculations.")
+            warn.append(
+                "Detected P looks like days; converted to years for mass calculations."
+            )
         else:
             P_yr = P
     else:
@@ -146,19 +174,25 @@ def compute_derived(elements, stats, override_key=None, override_value=None):
     if K1 is not None and K2 is not None and K2 != 0:
         q = K1 / K2
     else:
-        warn.append("K1/K2 not available; cannot relate individual masses to the total mass.")
+        warn.append(
+            "K1/K2 not available; cannot relate individual masses to the total mass."
+        )
 
     # Seed the chain: an explicit override, or (default) the file's parallax.
     v = {k: None for k in DERIVED_QUANTITY_LABELS}
     if override_key in v and override_value is not None:
         v[override_key] = float(override_value)
     else:
-        plx_from_file = float(stats.get("parallax", 0.0) or 0.0) if isinstance(stats, dict) else 0.0
+        plx_from_file = (
+            float(stats.get("parallax", 0.0) or 0.0) if isinstance(stats, dict) else 0.0
+        )
         if plx_from_file > 0:
             v["parallax_mas"] = plx_from_file
         else:
-            warn.append("Parallax is missing/zero; cannot compute distance or physical masses "
-                         "(enter a known value below to work out the rest instead).")
+            warn.append(
+                "Parallax is missing/zero; cannot compute distance or physical masses "
+                "(enter a known value below to work out the rest instead)."
+            )
 
     # Relax the chain until nothing new is resolved. 4 passes is enough to
     # cover the longest possible path (parallax <-> ... <-> M1/M2, 4 hops)
@@ -175,9 +209,9 @@ def compute_derived(elements, stats, override_key=None, override_value=None):
             v["distance_pc"] = v["a_AU"] / a_arcsec
 
         if v["M_total_Msun"] is None and v["a_AU"] is not None and P_yr:
-            v["M_total_Msun"] = v["a_AU"] ** 3 / P_yr ** 2
+            v["M_total_Msun"] = v["a_AU"] ** 3 / P_yr**2
         if v["a_AU"] is None and v["M_total_Msun"] is not None and P_yr:
-            v["a_AU"] = (v["M_total_Msun"] * P_yr ** 2) ** (1 / 3)
+            v["a_AU"] = (v["M_total_Msun"] * P_yr**2) ** (1 / 3)
 
         if q is not None and q > 0:
             if v["M_total_Msun"] is None and v["M1_Msun"] is not None:
@@ -191,7 +225,9 @@ def compute_derived(elements, stats, override_key=None, override_value=None):
                     v["M2_Msun"] = v["M_total_Msun"] * q / (1.0 + q)
 
     if not a_arcsec:
-        warn.append("a is missing; cannot relate distance to the physical semi-major axis.")
+        warn.append(
+            "a is missing; cannot relate distance to the physical semi-major axis."
+        )
 
     for key in DERIVED_QUANTITY_LABELS:
         if v[key] is not None:
@@ -211,19 +247,29 @@ def compute_derived(elements, stats, override_key=None, override_value=None):
 
     out["warnings"] = warn
     return out
+
+
 def _residual_panel(t_obs, resid, name, symbol, axis_label, title):
     """One residual panel: scatter vs epoch + a side boxplot. Split out as
     its own figure so Δρ and Δθ can be shown/downloaded independently."""
     fig = make_subplots(
-        rows=1, cols=2,
+        rows=1,
+        cols=2,
         column_widths=[0.78, 0.22],
         horizontal_spacing=0.06,
         specs=[[{"type": "scatter"}, {"type": "box"}]],
         subplot_titles=(None, "residuals"),
     )
     fig.add_trace(
-        go.Scatter(x=t_obs, y=resid, mode="markers", name=axis_label, marker=dict(size=8, symbol=symbol)),
-        row=1, col=1,
+        go.Scatter(
+            x=t_obs,
+            y=resid,
+            mode="markers",
+            name=axis_label,
+            marker=dict(size=8, symbol=symbol),
+        ),
+        row=1,
+        col=1,
     )
     fig.add_hline(y=0, row=1, col=1)
     fig.add_trace(go.Box(y=resid, name=axis_label, boxpoints=False), row=1, col=2)
@@ -259,7 +305,7 @@ def residuals_plotly(name: str):
     # Observations
     t_obs = backend.orb.pos[:, 0]
     theta_obs = backend.orb.pos[:, 1]  # deg
-    rho_obs = backend.orb.pos[:, 2]    # arcsec
+    rho_obs = backend.orb.pos[:, 2]  # arcsec
 
     # Fitted values at observed epochs: columns [theta_fit, rho_fit]
     res_obs = backend.eph(backend.orb.el, t_obs, rho=True)
@@ -267,12 +313,15 @@ def residuals_plotly(name: str):
 
     # Residuals (match backend.residual_plots)
     dtheta = theta_obs - theta_fit
-    dtheta = (dtheta + 180) % 360 - 180   # wrap to [-180,180)
+    dtheta = (dtheta + 180) % 360 - 180  # wrap to [-180,180)
     drho = rho_obs - rho_fit
 
-    fig_rho = _residual_panel(t_obs, drho, name, "triangle-up", "Δρ (arcsec)", "Δρ residuals")
+    fig_rho = _residual_panel(
+        t_obs, drho, name, "triangle-up", "Δρ (arcsec)", "Δρ residuals"
+    )
     fig_theta = _residual_panel(t_obs, dtheta, name, "star", "Δθ (deg)", "Δθ residuals")
     return fig_rho, fig_theta
+
 
 def orbplot_plotly():
     """
@@ -290,7 +339,7 @@ def orbplot_plotly():
         xye = backend.eph(backend.orb.el, time)
         # observed
         xobs = -backend.orb.pos[:, 2] * np.sin(backend.orb.pos[:, 1] / gr)
-        yobs =  backend.orb.pos[:, 2] * np.cos(backend.orb.pos[:, 1] / gr)
+        yobs = backend.orb.pos[:, 2] * np.cos(backend.orb.pos[:, 1] / gr)
 
         # initial orbit overlay (your code keeps backend.orb.initial_el)
         fig = go.Figure()
@@ -298,142 +347,244 @@ def orbplot_plotly():
         init_el = getattr(backend.orb, "initial_el", None)
         if init_el is not None:
             xye_init = backend.eph(init_el, time)
-            fig.add_trace(go.Scatter(
-                x=-xye_init[:, 1], y=xye_init[:, 0],
-                mode="lines", name="Initial Orbit",
-                line=dict(dash="dot")
-            ))
-        fig.add_trace(go.Scatter(
-            x=-xye[:, 1], y=xye[:, 0],
-            mode="lines", name="Fitted Orbit"
-        ))
+            fig.add_trace(
+                go.Scatter(
+                    x=-xye_init[:, 1],
+                    y=xye_init[:, 0],
+                    mode="lines",
+                    name="Initial Orbit",
+                    line=dict(dash="dot"),
+                )
+            )
+        fig.add_trace(
+            go.Scatter(x=-xye[:, 1], y=xye[:, 0], mode="lines", name="Fitted Orbit")
+        )
         t_obs = backend.orb.pos[:, 0]
         labels = [f"{t:.2f}" for t in t_obs]
-        fig.add_trace(go.Scatter(
-            x=xobs, y=yobs,
-            mode="markers+text",
-            name="Observed",
-            marker=dict(size=8, symbol="circle"),
-            text=labels,                         # time labels
-            textposition="top center",
-            textfont=dict(size=11),
-            hovertemplate="t=%{text}<br>x=%{x:.4f}<br>y=%{y:.4f}<extra></extra>"
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=xobs,
+                y=yobs,
+                mode="markers+text",
+                name="Observed",
+                marker=dict(size=8, symbol="circle"),
+                text=labels,  # time labels
+                textposition="top center",
+                textfont=dict(size=11),
+                hovertemplate="t=%{text}<br>x=%{x:.4f}<br>y=%{y:.4f}<extra></extra>",
+            )
+        )
         fig.update_layout(
             title=f"Visual Orbit: {name}",
             xaxis_title="ΔRA (arcsec)",
             yaxis_title="ΔDec (arcsec)",
-            width=None, height=520,
-            legend=dict(orientation="h")
+            width=None,
+            height=520,
+            legend=dict(orientation="h"),
         )
         fig.update_yaxes(scaleanchor="x", scaleratio=1)  # equal aspect
-        figs.append({"title": "Visual Orbit", "fig_json": json.dumps(fig, cls=PlotlyJSONEncoder)})
+        figs.append(
+            {
+                "title": "Visual Orbit",
+                "fig_json": json.dumps(fig, cls=PlotlyJSONEncoder),
+            }
+        )
 
     # ---------- RV vs Time ----------
-    if int(backend.orb.obj.get("nrv1", 0)) > 0 or int(backend.orb.obj.get("nrv2", 0)) > 0:
+    if (
+        int(backend.orb.obj.get("nrv1", 0)) > 0
+        or int(backend.orb.obj.get("nrv2", 0)) > 0
+    ):
         # Build model times over the actual observed RV time span
         tmin, tmax = None, None
-        if int(backend.orb.obj.get("nrv1", 0)) > 0 and getattr(backend.orb, "rv1", None) is not None and len(backend.orb.rv1) > 0:
+        if (
+            int(backend.orb.obj.get("nrv1", 0)) > 0
+            and getattr(backend.orb, "rv1", None) is not None
+            and len(backend.orb.rv1) > 0
+        ):
             tmin = backend.orb.rv1[:, 0].min()
             tmax = backend.orb.rv1[:, 0].max()
-        if int(backend.orb.obj.get("nrv2", 0)) > 0 and getattr(backend.orb, "rv2", None) is not None and len(backend.orb.rv2) > 0:
+        if (
+            int(backend.orb.obj.get("nrv2", 0)) > 0
+            and getattr(backend.orb, "rv2", None) is not None
+            and len(backend.orb.rv2) > 0
+        ):
             tmin2 = backend.orb.rv2[:, 0].min()
             tmax2 = backend.orb.rv2[:, 0].max()
             tmin = tmin2 if tmin is None else min(tmin, tmin2)
             tmax = tmax2 if tmax is None else max(tmax, tmax2)
         # Fallback: if something is odd, use old method
-        if tmin is None or tmax is None or not np.isfinite(tmin) or not np.isfinite(tmax) or tmax <= tmin:
+        if (
+            tmin is None
+            or tmax is None
+            or not np.isfinite(tmin)
+            or not np.isfinite(tmax)
+            or tmax <= tmin
+        ):
             t = np.linspace(0, backend.orb.el[0], 600) + backend.orb.el[1]
         else:
             pad = 0.03 * (tmax - tmin)
             t = np.linspace(tmin - pad, tmax + pad, 800)
         rv = backend.eph(backend.orb.el, t, rv=True)
         fig2 = go.Figure()
-        if int(backend.orb.obj.get("nrv1", 0)) > 0 and getattr(backend.orb, "rv1", None) is not None and len(backend.orb.rv1) > 0:
-            rv1_corr = backend.orb.rv1[:, 1] - backend.rv_offset_for_points(backend.orb.rv1_source, len(backend.orb.rv1))
-            fig2.add_trace(go.Scatter(
-                x=backend.orb.rv1[:, 0], y=rv1_corr,
-                mode="markers", name="Primary RV",
-                error_y=dict(type="data", array=backend.orb.rv1[:, 2], visible=True),
-                marker=dict(size=8, symbol="circle")
-            ))
-            fig2.add_trace(go.Scatter(
-                x=t, y=rv[:, 0],
-                mode="lines", name="Primary Fit"
-            ))
-            if int(backend.orb.obj.get("nrv2", 0)) > 0 and getattr(backend.orb, "rv2", None) is not None and len(backend.orb.rv2) > 0:
-                rv2_corr = backend.orb.rv2[:, 1] - backend.rv_offset_for_points(backend.orb.rv2_source, len(backend.orb.rv2))
-                fig2.add_trace(go.Scatter(
-                    x=backend.orb.rv2[:, 0], y=rv2_corr,
-                    mode="markers", name="Secondary RV",
-                    error_y=dict(type="data", array=backend.orb.rv2[:, 2], visible=True),
-                    marker=dict(size=8, symbol="diamond")
-                ))
-                fig2.add_trace(go.Scatter(
-                    x=t, y=rv[:, 1],
-                    mode="lines", name="Secondary Fit",
-                    line=dict(dash="dash")
-                ))
+        if (
+            int(backend.orb.obj.get("nrv1", 0)) > 0
+            and getattr(backend.orb, "rv1", None) is not None
+            and len(backend.orb.rv1) > 0
+        ):
+            rv1_corr = backend.orb.rv1[:, 1] - backend.rv_offset_for_points(
+                backend.orb.rv1_source, len(backend.orb.rv1)
+            )
+            fig2.add_trace(
+                go.Scatter(
+                    x=backend.orb.rv1[:, 0],
+                    y=rv1_corr,
+                    mode="markers",
+                    name="Primary RV",
+                    error_y=dict(
+                        type="data", array=backend.orb.rv1[:, 2], visible=True
+                    ),
+                    marker=dict(size=8, symbol="circle"),
+                )
+            )
+            fig2.add_trace(
+                go.Scatter(x=t, y=rv[:, 0], mode="lines", name="Primary Fit")
+            )
+            if (
+                int(backend.orb.obj.get("nrv2", 0)) > 0
+                and getattr(backend.orb, "rv2", None) is not None
+                and len(backend.orb.rv2) > 0
+            ):
+                rv2_corr = backend.orb.rv2[:, 1] - backend.rv_offset_for_points(
+                    backend.orb.rv2_source, len(backend.orb.rv2)
+                )
+                fig2.add_trace(
+                    go.Scatter(
+                        x=backend.orb.rv2[:, 0],
+                        y=rv2_corr,
+                        mode="markers",
+                        name="Secondary RV",
+                        error_y=dict(
+                            type="data", array=backend.orb.rv2[:, 2], visible=True
+                        ),
+                        marker=dict(size=8, symbol="diamond"),
+                    )
+                )
+                fig2.add_trace(
+                    go.Scatter(
+                        x=t,
+                        y=rv[:, 1],
+                        mode="lines",
+                        name="Secondary Fit",
+                        line=dict(dash="dash"),
+                    )
+                )
             fig2.update_layout(
                 title=f"RV vs Time: {name}",
                 xaxis_title="Time",
                 yaxis_title="Radial Velocity (km/s)",
                 height=520,
-                legend=dict(orientation="h")
+                legend=dict(orientation="h"),
             )
-            figs.append({"title": "RV vs Time", "fig_json": json.dumps(fig2, cls=PlotlyJSONEncoder)})
+            figs.append(
+                {
+                    "title": "RV vs Time",
+                    "fig_json": json.dumps(fig2, cls=PlotlyJSONEncoder),
+                }
+            )
 
     # ---------- RV vs Phase ----------
-    if int(backend.orb.obj.get("nrv1", 0)) > 0 or int(backend.orb.obj.get("nrv2", 0)) > 0:
+    if (
+        int(backend.orb.obj.get("nrv1", 0)) > 0
+        or int(backend.orb.obj.get("nrv2", 0)) > 0
+    ):
         phases = np.linspace(0, 1, 200)
         t_phase = phases * backend.orb.el[0] + backend.orb.el[1]
         rv_phase = backend.eph(backend.orb.el, t_phase, rv=True)
 
         fig3 = go.Figure()
         if int(backend.orb.obj.get("nrv1", 0)) > 0:
-            phase1 = ((backend.orb.rv1[:, 0] - backend.orb.el[1]) / backend.orb.el[0]) % 1
-            rv1_corr = backend.orb.rv1[:, 1] - backend.rv_offset_for_points(backend.orb.rv1_source, len(backend.orb.rv1))
-            fig3.add_trace(go.Scatter(
-                x=phase1, y=rv1_corr,
-                mode="markers", name="Primary RV",
-                error_y=dict(type="data", array=backend.orb.rv1[:, 2], visible=True),
-                marker=dict(size=8, symbol="circle")
-            ))
-            fig3.add_trace(go.Scatter(
-                x=phases, y=rv_phase[:, 0],
-                mode="lines", name="Primary Fit"
-            ))
+            phase1 = (
+                (backend.orb.rv1[:, 0] - backend.orb.el[1]) / backend.orb.el[0]
+            ) % 1
+            rv1_corr = backend.orb.rv1[:, 1] - backend.rv_offset_for_points(
+                backend.orb.rv1_source, len(backend.orb.rv1)
+            )
+            fig3.add_trace(
+                go.Scatter(
+                    x=phase1,
+                    y=rv1_corr,
+                    mode="markers",
+                    name="Primary RV",
+                    error_y=dict(
+                        type="data", array=backend.orb.rv1[:, 2], visible=True
+                    ),
+                    marker=dict(size=8, symbol="circle"),
+                )
+            )
+            fig3.add_trace(
+                go.Scatter(x=phases, y=rv_phase[:, 0], mode="lines", name="Primary Fit")
+            )
 
         if int(backend.orb.obj.get("nrv2", 0)) > 0:
-            phase2 = ((backend.orb.rv2[:, 0] - backend.orb.el[1]) / backend.orb.el[0]) % 1
-            rv2_corr = backend.orb.rv2[:, 1] - backend.rv_offset_for_points(backend.orb.rv2_source, len(backend.orb.rv2))
-            fig3.add_trace(go.Scatter(
-                x=phase2, y=rv2_corr,
-                mode="markers", name="Secondary RV",
-                error_y=dict(type="data", array=backend.orb.rv2[:, 2], visible=True),
-                marker=dict(size=8, symbol="diamond")
-            ))
-            fig3.add_trace(go.Scatter(
-                x=phases, y=rv_phase[:, 1],
-                mode="lines", name="Secondary Fit",
-                line=dict(dash="dash")
-            ))
+            phase2 = (
+                (backend.orb.rv2[:, 0] - backend.orb.el[1]) / backend.orb.el[0]
+            ) % 1
+            rv2_corr = backend.orb.rv2[:, 1] - backend.rv_offset_for_points(
+                backend.orb.rv2_source, len(backend.orb.rv2)
+            )
+            fig3.add_trace(
+                go.Scatter(
+                    x=phase2,
+                    y=rv2_corr,
+                    mode="markers",
+                    name="Secondary RV",
+                    error_y=dict(
+                        type="data", array=backend.orb.rv2[:, 2], visible=True
+                    ),
+                    marker=dict(size=8, symbol="diamond"),
+                )
+            )
+            fig3.add_trace(
+                go.Scatter(
+                    x=phases,
+                    y=rv_phase[:, 1],
+                    mode="lines",
+                    name="Secondary Fit",
+                    line=dict(dash="dash"),
+                )
+            )
 
         fig3.update_layout(
             title=f"RV vs Phase: {name}",
             xaxis_title="Phase",
             yaxis_title="Radial Velocity (km/s)",
             height=520,
-            legend=dict(orientation="h")
+            legend=dict(orientation="h"),
         )
-        figs.append({"title": "RV vs Phase", "fig_json": json.dumps(fig3, cls=PlotlyJSONEncoder)})
+        figs.append(
+            {
+                "title": "RV vs Phase",
+                "fig_json": json.dumps(fig3, cls=PlotlyJSONEncoder),
+            }
+        )
 
     # ---------- Residuals (Interactive), as two separate panels ----------
     res_figs = residuals_plotly(name)
     if res_figs is not None:
         fig_rho, fig_theta = res_figs
-        figs.append({"title": "Residuals: Δρ (separation)", "fig_json": json.dumps(fig_rho, cls=PlotlyJSONEncoder)})
-        figs.append({"title": "Residuals: Δθ (position angle)", "fig_json": json.dumps(fig_theta, cls=PlotlyJSONEncoder)})
+        figs.append(
+            {
+                "title": "Residuals: Δρ (separation)",
+                "fig_json": json.dumps(fig_rho, cls=PlotlyJSONEncoder),
+            }
+        )
+        figs.append(
+            {
+                "title": "Residuals: Δθ (position angle)",
+                "fig_json": json.dumps(fig_theta, cls=PlotlyJSONEncoder),
+            }
+        )
     return figs
 
 
@@ -442,15 +593,26 @@ def _snapshot_points():
     from the file, before restrict_points() (if any) shrinks them. Row i
     here is always "original file row i" - the stable index used by the
     point-selection checkboxes and by point_filter."""
+
     def _copy(name, ncols):
         n = int(backend.orb.obj.get(f"n{name}", 0))
         if n == 0:
             return np.zeros((0, ncols)), []
-        return getattr(backend.orb, name).copy(), list(getattr(backend.orb, f"{name}_source"))
+        return getattr(backend.orb, name).copy(), list(
+            getattr(backend.orb, f"{name}_source")
+        )
+
     pos, pos_src = _copy("pos", 6)
     rv1, rv1_src = _copy("rv1", 3)
     rv2, rv2_src = _copy("rv2", 3)
-    return {"pos": pos, "pos_source": pos_src, "rv1": rv1, "rv1_source": rv1_src, "rv2": rv2, "rv2_source": rv2_src}
+    return {
+        "pos": pos,
+        "pos_source": pos_src,
+        "rv1": rv1,
+        "rv1_source": rv1_src,
+        "rv2": rv2,
+        "rv2_source": rv2_src,
+    }
 
 
 def _build_point_tables(full, point_filter):
@@ -473,12 +635,19 @@ def _build_point_tables(full, point_filter):
         included = set(keep["pos"]) if keep.get("pos") is not None else None
         src = full["pos_source"]
         for i in range(pos.shape[0]):
-            tables["pos"].append({
-                "idx": i, "epoch": float(t_obs[i]), "theta": float(theta_obs[i]),
-                "rho": float(rho_obs[i]), "err": float(err[i]), "source": src[i] if i < len(src) else "",
-                "dtheta": float(dtheta[i]), "drho": float(drho[i]),
-                "included": included is None or i in included,
-            })
+            tables["pos"].append(
+                {
+                    "idx": i,
+                    "epoch": float(t_obs[i]),
+                    "theta": float(theta_obs[i]),
+                    "rho": float(rho_obs[i]),
+                    "err": float(err[i]),
+                    "source": src[i] if i < len(src) else "",
+                    "dtheta": float(dtheta[i]),
+                    "drho": float(drho[i]),
+                    "included": included is None or i in included,
+                }
+            )
 
     for key, col in (("rv1", 0), ("rv2", 1)):
         arr = full[key]
@@ -490,17 +659,27 @@ def _build_point_tables(full, point_filter):
             drv = rv_obs - rv_fit
             included = set(keep[key]) if keep.get(key) is not None else None
             for i in range(arr.shape[0]):
-                tables[key].append({
-                    "idx": i, "epoch": float(t[i]), "rv": float(rv_obs[i]),
-                    "err": float(err[i]), "source": src[i] if i < len(src) else "", "drv": float(drv[i]),
-                    "included": included is None or i in included,
-                })
+                tables[key].append(
+                    {
+                        "idx": i,
+                        "epoch": float(t[i]),
+                        "rv": float(rv_obs[i]),
+                        "err": float(err[i]),
+                        "source": src[i] if i < len(src) else "",
+                        "drv": float(drv[i]),
+                        "included": included is None or i in included,
+                    }
+                )
 
     return tables
 
 
-def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int],
-                    point_filter: dict | None = None) -> dict:
+def run_fit_to_dir(
+    run_dir: Path,
+    uploaded_path: Path,
+    fixel_map: dict[str, int],
+    point_filter: dict | None = None,
+) -> dict:
     """
     readinp/readcsv_custom -> [restrict_points] -> apply fixel -> fitorb ->
     orbsave -> plots. All outputs written into run_dir.
@@ -520,7 +699,9 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
             if hasattr(backend, "readcsv_custom"):
                 backend.readcsv_custom(str(uploaded_path))
             else:
-                raise RuntimeError("CSV upload not supported: backend.readcsv_custom not found in backend.py")
+                raise RuntimeError(
+                    "CSV upload not supported: backend.readcsv_custom not found in backend.py"
+                )
 
         full_points = _snapshot_points()
 
@@ -559,21 +740,28 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
                 save_fig(fig, p)
                 plot_files.append(p.name)
         else:
-            print("No plot function found in backend (expected orbplot_streamlit/orbplot/make_plots).")
+            print(
+                "No plot function found in backend (expected orbplot_streamlit/orbplot/make_plots)."
+            )
         # (B) Build Plotly interactive plots for the web UI
         plotly_figs = []
         try:
-            plotly_figs = orbplot_plotly()   # your Plotly builder function
+            plotly_figs = orbplot_plotly()  # your Plotly builder function
         except Exception:
             print("Plotly plot build failed:\n", traceback.format_exc())
 
-
         residual_file = None
-        if int(backend.orb.obj.get("npos", 0)) > 0 and hasattr(backend, "residual_plots"):
+        residual_files = []
+        if int(backend.orb.obj.get("npos", 0)) > 0 and hasattr(
+            backend, "residual_plots"
+        ):
             fig_rho, fig_theta = backend.residual_plots()
             save_fig(fig_rho, run_dir / "residuals_rho.png")
             save_fig(fig_theta, run_dir / "residuals_theta.png")
-            residual_file = "residuals_rho.png"  # kept for backward compat; see plot_files for both
+            residual_files = ["residuals_rho.png", "residuals_theta.png"]
+            residual_file = (
+                "residuals_rho.png"  # kept for backward compat; see plot_files for both
+            )
 
         # Elements table
         elements = []
@@ -619,7 +807,10 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
                 }
             )
         except Exception:
-            pass
+            print(
+                f"Could not parse fit statistics in {run_dir}:\n",
+                traceback.format_exc(),
+            )
         derived = compute_derived(elements, stats)
         point_tables = _build_point_tables(full_points, point_filter)
 
@@ -629,25 +820,37 @@ def run_fit_to_dir(run_dir: Path, uploaded_path: Path, fixel_map: dict[str, int]
         # work without depending on the shared, possibly-since-overwritten
         # backend.orb global.
         try:
-            (run_dir / "summary.json").write_text(json.dumps({
-                "run_id": run_dir.name, "elements": elements, "stats": stats, "derived": derived,
-                "plotly_figs": plotly_figs,  # so the PDF report can render the same plots
-                "point_tables": point_tables,
-                "fixel_map": fixel_map,
-                "uploaded_filename": uploaded_path.name,
-                "point_filter": point_filter,
-            }))
+            (run_dir / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_dir.name,
+                        "elements": elements,
+                        "stats": stats,
+                        "derived": derived,
+                        "plotly_figs": plotly_figs,  # so the PDF report can render the same plots
+                        "point_tables": point_tables,
+                        "residual_files": residual_files,
+                        "fixel_map": fixel_map,
+                        "uploaded_filename": uploaded_path.name,
+                        "point_filter": point_filter,
+                    }
+                )
+            )
         except Exception:
-            pass
+            print(
+                f"Could not write summary.json in {run_dir}:\n",
+                traceback.format_exc(),
+            )
 
         return {
             "run_id": run_dir.name,
             "elements": elements,
             "stats": stats,
             "derived": derived,
-            "plotly_figs": plotly_figs,     # web interactive
-            "plot_files": plot_files,       # optional (kept for debugging)
-            "residual_file": residual_file, # still useful
+            "plotly_figs": plotly_figs,  # web interactive
+            "plot_files": plot_files,  # optional (kept for debugging)
+            "residual_file": residual_file,  # still useful
+            "residual_files": residual_files,
             "output_csv": output_csv if output_csv_path.exists() else None,
             "point_tables": point_tables,
         }
@@ -686,19 +889,40 @@ ELEMENT_GLOSSARY = {
     "V0": "The whole system's velocity through space, in km/s (the RV curves' midline).",
 }
 ELEMENT_SHORT_LABELS = {
-    "P": "period", "T": "periastron time", "e": "eccentricity", "a": "semi-major axis",
-    "W": "node angle", "w": "periastron angle", "i": "inclination",
-    "K1": "RV amp. 1", "K2": "RV amp. 2", "V0": "systemic v",
+    "P": "period",
+    "T": "periastron time",
+    "e": "eccentricity",
+    "a": "semi-major axis",
+    "W": "node angle",
+    "w": "periastron angle",
+    "i": "inclination",
+    "K1": "RV amp. 1",
+    "K2": "RV amp. 2",
+    "V0": "systemic v",
 }
 
 
+# @app.route("/", methods=["GET"])
+# def index():
+#     elnames = list(getattr(backend, "orb").elname)
+#     defaults = {nm: 1 for nm in elnames}  # checked=fit
+#     return render_template(
+#         "index.html", elnames=elnames, defaults=defaults,
+#         full_names=ELEMENT_FULL_NAMES, glossary=ELEMENT_GLOSSARY, short_labels=ELEMENT_SHORT_LABELS,
+#     )
+# changes in code
 @app.route("/", methods=["GET"])
 def index():
     elnames = list(getattr(backend, "orb").elname)
     defaults = {nm: 1 for nm in elnames}  # checked=fit
     return render_template(
-        "index.html", elnames=elnames, defaults=defaults,
-        full_names=ELEMENT_FULL_NAMES, glossary=ELEMENT_GLOSSARY, short_labels=ELEMENT_SHORT_LABELS,
+        "index.html",
+        elnames=elnames,
+        defaults=defaults,
+        full_names=ELEMENT_FULL_NAMES,
+        glossary=ELEMENT_GLOSSARY,
+        short_labels=ELEMENT_SHORT_LABELS,
+        sample_files=SAMPLE_FILES,
     )
 
 
@@ -706,31 +930,79 @@ def index():
 def run():
     run_id = uuid.uuid4().hex[:12]  # create early so error page can show it
     try:
-        if "datafile" not in request.files:
-            flash("No file selected.", "error")
-            return redirect(url_for("index"))
+        # if "datafile" not in request.files:
+        #     flash("No file selected.", "error")
+        #     return redirect(url_for("index"))
 
-        f = request.files["datafile"]
-        if not f.filename:
-            flash("No file selected.", "error")
-            return redirect(url_for("index"))
+        # f = request.files["datafile"]
+        # if not f.filename:
+        #     flash("No file selected.", "error")
+        #     return redirect(url_for("index"))
 
-        if not allowed_file(f.filename):
-            flash("Unsupported file type. Upload .inp, .csv, or .txt", "error")
-            return redirect(url_for("index"))
+        # if not allowed_file(f.filename):
+        #     flash("Unsupported file type. Upload .inp, .csv, or .txt", "error")
+        #     return redirect(url_for("index"))
 
+        # run_dir = RUNS_DIR / run_id
+        # run_dir.mkdir(parents=True, exist_ok=True)
+
+        # filename = secure_filename(f.filename)
+        # uploaded_path = run_dir / filename
+        # f.save(uploaded_path)
+        # changes in code
         run_dir = RUNS_DIR / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        filename = secure_filename(f.filename)
-        uploaded_path = run_dir / filename
-        f.save(uploaded_path)
+        input_mode = request.form.get("input_mode", "upload")
+
+        if input_mode == "sample":
+            sample_key = request.form.get("sample_file")
+
+            if sample_key not in SAMPLE_FILES:
+                flash("Please select a valid sample dataset.", "error")
+                return redirect(url_for("index"))
+
+            sample_path = APP_DIR / "static" / "examples" / SAMPLE_FILES[sample_key]
+
+            if not sample_path.exists():
+                flash("Selected sample dataset is not available.", "error")
+                return redirect(url_for("index"))
+
+            filename = sample_path.name
+            uploaded_path = run_dir / filename
+            shutil.copy2(sample_path, uploaded_path)
+
+        else:
+            if "datafile" not in request.files:
+                flash("No file selected.", "error")
+                return redirect(url_for("index"))
+
+            f = request.files["datafile"]
+
+            if not f.filename:
+                flash("No file selected.", "error")
+                return redirect(url_for("index"))
+
+            if not allowed_file(f.filename):
+                flash("Unsupported file type. Upload .inp, .csv, or .txt", "error")
+                return redirect(url_for("index"))
+
+            filename = secure_filename(f.filename)
+            uploaded_path = run_dir / filename
+            f.save(uploaded_path)
 
         elnames = list(getattr(backend, "orb").elname)
-        fixel_map = {nm: (1 if request.form.get(f"fit_{nm}") == "on" else 0) for nm in elnames}
+        fixel_map = {
+            nm: (1 if request.form.get(f"fit_{nm}") == "on" else 0) for nm in elnames
+        }
 
         summary = run_fit_to_dir(run_dir, uploaded_path, fixel_map)
-        return render_template("result.html", glossary=ELEMENT_GLOSSARY, derived_labels=DERIVED_QUANTITY_LABELS, **summary)
+        return render_template(
+            "result.html",
+            glossary=ELEMENT_GLOSSARY,
+            derived_labels=DERIVED_QUANTITY_LABELS,
+            **summary,
+        )
 
     except Exception as e:
         tb = traceback.format_exc()
@@ -770,7 +1042,9 @@ def refit(run_id):
     uploaded_filename = data.get("uploaded_filename")
     uploaded_path = (run_dir / uploaded_filename) if uploaded_filename else None
     if not uploaded_path or not uploaded_path.exists():
-        flash("The originally uploaded file is no longer available for this run.", "error")
+        flash(
+            "The originally uploaded file is no longer available for this run.", "error"
+        )
         return redirect(url_for("index"))
 
     fixel_map = data.get("fixel_map") or {}
@@ -780,18 +1054,36 @@ def refit(run_id):
         rows = point_tables.get(key) or []
         if not rows:
             continue
-        point_filter[key] = [row["idx"] for row in rows if request.form.get(f"{key}_keep_{row['idx']}") == "on"]
+        point_filter[key] = [
+            row["idx"]
+            for row in rows
+            if request.form.get(f"{key}_keep_{row['idx']}") == "on"
+        ]
 
     try:
-        summary = run_fit_to_dir(run_dir, uploaded_path, fixel_map, point_filter=point_filter)
+        summary = run_fit_to_dir(
+            run_dir, uploaded_path, fixel_map, point_filter=point_filter
+        )
     except Exception as e:
         tb = traceback.format_exc()
         return render_template(
-            "error.html", error=str(e), traceback=tb, run_id=run_id,
-            stats=default_stats(), elements=[], plot_files=[], residual_file=None, output_csv=None,
+            "error.html",
+            error=str(e),
+            traceback=tb,
+            run_id=run_id,
+            stats=default_stats(),
+            elements=[],
+            plot_files=[],
+            residual_file=None,
+            output_csv=None,
         )
 
-    return render_template("result.html", glossary=ELEMENT_GLOSSARY, derived_labels=DERIVED_QUANTITY_LABELS, **summary)
+    return render_template(
+        "result.html",
+        glossary=ELEMENT_GLOSSARY,
+        derived_labels=DERIVED_QUANTITY_LABELS,
+        **summary,
+    )
 
 
 @app.route("/runs/<run_id>/<path:filename>")
@@ -868,40 +1160,82 @@ def recompute(run_id):
             break
 
     return render_template(
-        "result.html", glossary=ELEMENT_GLOSSARY, derived_labels=DERIVED_QUANTITY_LABELS,
-        run_id=run_id, elements=elements, stats=stats, derived=derived,
-        plotly_figs=data.get("plotly_figs", []), output_csv=output_csv,
+        "result.html",
+        glossary=ELEMENT_GLOSSARY,
+        derived_labels=DERIVED_QUANTITY_LABELS,
+        run_id=run_id,
+        elements=elements,
+        stats=stats,
+        derived=derived,
+        plotly_figs=data.get("plotly_figs", []),
+        output_csv=output_csv,
         point_tables=data.get("point_tables", {}),
     )
 
 
 _PDF_STYLES = getSampleStyleSheet()
-_PDF_TITLE = ParagraphStyle("PdfTitle", parent=_PDF_STYLES["Title"], fontSize=18, spaceAfter=2)
-_PDF_META = ParagraphStyle("PdfMeta", parent=_PDF_STYLES["Normal"], fontSize=9, textColor=colors.HexColor("#5a6578"))
-_PDF_H2 = ParagraphStyle("PdfH2", parent=_PDF_STYLES["Heading2"], fontSize=13, spaceBefore=10, spaceAfter=4,
-                         textColor=colors.HexColor("#1a1a2e"))
-_PDF_H3 = ParagraphStyle("PdfH3", parent=_PDF_STYLES["Heading3"], fontSize=10.5, spaceBefore=6, spaceAfter=2)
-_PDF_BODY = ParagraphStyle("PdfBody", parent=_PDF_STYLES["Normal"], fontSize=9.5, leading=13)
-_PDF_CAPTION = ParagraphStyle("PdfCaption", parent=_PDF_STYLES["Normal"], fontSize=8.5,
-                               textColor=colors.HexColor("#5a6578"), spaceBefore=6)
-_PDF_WARN = ParagraphStyle("PdfWarn", parent=_PDF_STYLES["Normal"], fontSize=9, textColor=colors.HexColor("#8a5a00"))
+_PDF_TITLE = ParagraphStyle(
+    "PdfTitle", parent=_PDF_STYLES["Title"], fontSize=18, spaceAfter=2
+)
+_PDF_META = ParagraphStyle(
+    "PdfMeta",
+    parent=_PDF_STYLES["Normal"],
+    fontSize=9,
+    textColor=colors.HexColor("#5a6578"),
+)
+_PDF_H2 = ParagraphStyle(
+    "PdfH2",
+    parent=_PDF_STYLES["Heading2"],
+    fontSize=13,
+    spaceBefore=10,
+    spaceAfter=4,
+    textColor=colors.HexColor("#1a1a2e"),
+)
+_PDF_H3 = ParagraphStyle(
+    "PdfH3", parent=_PDF_STYLES["Heading3"], fontSize=10.5, spaceBefore=6, spaceAfter=2
+)
+_PDF_BODY = ParagraphStyle(
+    "PdfBody", parent=_PDF_STYLES["Normal"], fontSize=9.5, leading=13
+)
+_PDF_CAPTION = ParagraphStyle(
+    "PdfCaption",
+    parent=_PDF_STYLES["Normal"],
+    fontSize=8.5,
+    textColor=colors.HexColor("#5a6578"),
+    spaceBefore=6,
+)
+_PDF_WARN = ParagraphStyle(
+    "PdfWarn",
+    parent=_PDF_STYLES["Normal"],
+    fontSize=9,
+    textColor=colors.HexColor("#8a5a00"),
+)
 
 
 def _pdf_table(rows, col_widths=None):
     t = Table(rows, colWidths=col_widths, repeatRows=1)
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#7c5cff")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dcdce6")),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f6f6fb")]),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 7),
-    ]))
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#7c5cff")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dcdce6")),
+                (
+                    "ROWBACKGROUNDS",
+                    (0, 1),
+                    (-1, -1),
+                    [colors.white, colors.HexColor("#f6f6fb")],
+                ),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
     return t
 
 
@@ -915,14 +1249,19 @@ def _plotly_json_to_png(fig_json: str, width=1000, height=620, scale=2) -> bytes
     """Render a Plotly figure (as saved by orbplot_plotly) to PNG bytes via
     Kaleido, so the PDF report shows the exact same plot as the web UI."""
     import kaleido
+
     fig_dict = json.loads(fig_json)
     kopts = {"path": _KALEIDO_CHROME_PATH} if _KALEIDO_CHROME_PATH else {}
     return kaleido.calc_fig_sync(
-        fig_dict, opts={"width": width, "height": height, "scale": scale, "format": "png"}, kopts=kopts,
+        fig_dict,
+        opts={"width": width, "height": height, "scale": scale, "format": "png"},
+        kopts=kopts,
     )
 
 
-@app.route("/report/<run_id>")
+# @app.route("/report/<run_id>")
+# def report(run_id):
+@app.route("/report/<run_id>", methods=["GET", "POST"])
 def report(run_id):
     run_dir = RUNS_DIR / run_id
     if not run_dir.exists():
@@ -938,8 +1277,14 @@ def report(run_id):
             data = None
 
     pdf_path = run_dir / f"{run_id}_report.pdf"
-    doc = SimpleDocTemplate(str(pdf_path), pagesize=A4,
-                             topMargin=1.8*cm, bottomMargin=1.8*cm, leftMargin=2*cm, rightMargin=2*cm)
+    doc = SimpleDocTemplate(
+        str(pdf_path),
+        pagesize=A4,
+        topMargin=1.8 * cm,
+        bottomMargin=1.8 * cm,
+        leftMargin=2 * cm,
+        rightMargin=2 * cm,
+    )
     story = []
 
     story.append(Paragraph("Binary-Star Orbit Fitting Report", _PDF_TITLE))
@@ -947,20 +1292,28 @@ def report(run_id):
     obj_name = (data or {}).get("stats", {}).get("name")
     if obj_name:
         story.append(Paragraph(f"Object: {obj_name}", _PDF_META))
-    story.append(Paragraph(
-        "Python Implementation of Tokovinin’s original OrbitX code. This version, enhanced by "
-        "Prof. Mashhoor Al-Wardat and Dr. Mohammed Hussin Talafha, analyzes orbits of visual "
-        "binaries (VB) using data from the 4th Catalogue of Interferometric Measurements or SOAR "
-        "telescope, spectroscopic binaries (SB) using SB9 catalogue data, or any binary system "
-        "with both interferometric and spectroscopic measurements.", _PDF_META))
-    story.append(Spacer(1, 0.5*cm))
+    story.append(
+        Paragraph(
+            "Python Implementation of Tokovinin’s original OrbitX code. This version, enhanced by "
+            "Prof. Mashhoor Al-Wardat and Dr. Mohammed Hussin Talafha, analyzes orbits of visual "
+            "binaries (VB) using data from the 4th Catalogue of Interferometric Measurements or SOAR "
+            "telescope, spectroscopic binaries (SB) using SB9 catalogue data, or any binary system "
+            "with both interferometric and spectroscopic measurements.",
+            _PDF_META,
+        )
+    )
+    story.append(Spacer(1, 0.5 * cm))
 
     if data:
-        story.append(Paragraph(
-            "This report summarises a least-squares fit of a binary-star orbit to the "
-            "uploaded observations. The fit adjusts the checked orbital elements until the "
-            "predicted orbit matches the data as closely as possible; the quoted errors show "
-            "how tightly each element is constrained by the data.", _PDF_BODY))
+        story.append(
+            Paragraph(
+                "This report summarises a least-squares fit of a binary-star orbit to the "
+                "uploaded observations. The fit adjusts the checked orbital elements until the "
+                "predicted orbit matches the data as closely as possible; the quoted errors show "
+                "how tightly each element is constrained by the data.",
+                _PDF_BODY,
+            )
+        )
 
         elements = data.get("elements", [])
         if elements:
@@ -968,8 +1321,20 @@ def report(run_id):
             rows = [["Parameter", "Value", "Unit", "Error", "Fit?"]]
             for row in elements:
                 err = f'{row["err"]:.3g}' if row.get("fit") == 1 else "—"
-                rows.append([row["name"], f'{row["value"]:.10g}', row.get("unit", ""), err, "Yes" if row.get("fit") == 1 else "No"])
-            story.append(_pdf_table(rows, col_widths=[3*cm, 4.3*cm, 2*cm, 3.2*cm, 2*cm]))
+                rows.append(
+                    [
+                        row["name"],
+                        f'{row["value"]:.10g}',
+                        row.get("unit", ""),
+                        err,
+                        "Yes" if row.get("fit") == 1 else "No",
+                    ]
+                )
+            story.append(
+                _pdf_table(
+                    rows, col_widths=[3 * cm, 4.3 * cm, 2 * cm, 3.2 * cm, 2 * cm]
+                )
+            )
 
             story.append(Paragraph("What these mean", _PDF_H3))
             gloss_rows = [["Symbol", "Meaning"]]
@@ -977,25 +1342,57 @@ def report(run_id):
                 nm = row["name"]
                 if nm in ELEMENT_GLOSSARY:
                     gloss_rows.append([nm, ELEMENT_GLOSSARY[nm]])
-            story.append(_pdf_table(gloss_rows, col_widths=[2*cm, 13*cm]))
+            story.append(_pdf_table(gloss_rows, col_widths=[2 * cm, 13 * cm]))
 
         stats = data.get("stats", {})
-        if stats.get("npos", 0) > 0 or stats.get("nrv1", 0) > 0 or stats.get("nrv2", 0) > 0:
+        if (
+            stats.get("npos", 0) > 0
+            or stats.get("nrv1", 0) > 0
+            or stats.get("nrv2", 0) > 0
+        ):
             story.append(Paragraph("Fit Quality", _PDF_H2))
-            story.append(Paragraph(
-                "Reduced chi-squared (χ²) near 1 means the fit matches the data about as well "
-                "as the quoted measurement errors predict; much larger suggests a poor fit or "
-                "underestimated errors, much smaller suggests overestimated errors. RMS is the "
-                "typical size of the fit's miss, in real units.", _PDF_BODY))
+            story.append(
+                Paragraph(
+                    "Reduced chi-squared (χ²) near 1 means the fit matches the data about as well "
+                    "as the quoted measurement errors predict; much larger suggests a poor fit or "
+                    "underestimated errors, much smaller suggests overestimated errors. RMS is the "
+                    "typical size of the fit's miss, in real units.",
+                    _PDF_BODY,
+                )
+            )
             rows = [["Data type", "Reduced χ²", "RMS residual"]]
             if stats.get("npos", 0) > 0:
-                rows.append(["Position angle (θ)", f'{stats["chi2n_theta"]:.3g}', f'{stats["rms_theta"]:.4g}°'])
-                rows.append(["Separation (ρ)", f'{stats["chi2n_rho"]:.3g}', f'{stats["rms_rho"]:.4g}"'])
+                rows.append(
+                    [
+                        "Position angle (θ)",
+                        f'{stats["chi2n_theta"]:.3g}',
+                        f'{stats["rms_theta"]:.4g}°',
+                    ]
+                )
+                rows.append(
+                    [
+                        "Separation (ρ)",
+                        f'{stats["chi2n_rho"]:.3g}',
+                        f'{stats["rms_rho"]:.4g}"',
+                    ]
+                )
             if stats.get("nrv1", 0) > 0:
-                rows.append(["RV1 (primary)", f'{stats["chi2n_rv1"]:.3g}', f'{stats["rms_rv1"]:.4g} km/s'])
+                rows.append(
+                    [
+                        "RV1 (primary)",
+                        f'{stats["chi2n_rv1"]:.3g}',
+                        f'{stats["rms_rv1"]:.4g} km/s',
+                    ]
+                )
             if stats.get("nrv2", 0) > 0:
-                rows.append(["RV2 (secondary)", f'{stats["chi2n_rv2"]:.3g}', f'{stats["rms_rv2"]:.4g} km/s'])
-            story.append(_pdf_table(rows, col_widths=[6*cm, 4.5*cm, 4.5*cm]))
+                rows.append(
+                    [
+                        "RV2 (secondary)",
+                        f'{stats["chi2n_rv2"]:.3g}',
+                        f'{stats["rms_rv2"]:.4g} km/s',
+                    ]
+                )
+            story.append(_pdf_table(rows, col_widths=[6 * cm, 4.5 * cm, 4.5 * cm]))
 
         derived = data.get("derived", {})
         if derived:
@@ -1003,28 +1400,35 @@ def report(run_id):
             for w in derived.get("warnings", []):
                 story.append(Paragraph(f"Note: {w}", _PDF_WARN))
             labels = [
-                ("parallax_mas", "Parallax (mas)"), ("distance_pc", "Distance (pc)"),
-                ("a_AU", "a (AU)"), ("P_yr", "P (yr used)"),
-                ("M_total_Msun", "M_total (Msun)"), ("q_M2_over_M1", "q = M2/M1"),
-                ("M1_Msun", "M1 (Msun)"), ("M2_Msun", "M2 (Msun)"),
+                ("parallax_mas", "Parallax (mas)"),
+                ("distance_pc", "Distance (pc)"),
+                ("a_AU", "a (AU)"),
+                ("P_yr", "P (yr used)"),
+                ("M_total_Msun", "M_total (Msun)"),
+                ("q_M2_over_M1", "q = M2/M1"),
+                ("M1_Msun", "M1 (Msun)"),
+                ("M2_Msun", "M2 (Msun)"),
             ]
             rows = [["Quantity", "Value"]]
             for key, label in labels:
                 if key in derived:
-                    rows.append([label, f'{derived[key]:.6g}'])
+                    rows.append([label, f"{derived[key]:.6g}"])
             if len(rows) > 1:
-                story.append(_pdf_table(rows, col_widths=[8*cm, 7*cm]))
+                story.append(_pdf_table(rows, col_widths=[8 * cm, 7 * cm]))
     else:
-        story.append(Paragraph(
-            "Numeric results were not available when this report was generated; showing plots only.",
-            _PDF_BODY))
+        story.append(
+            Paragraph(
+                "Numeric results were not available when this report was generated; showing plots only.",
+                _PDF_BODY,
+            )
+        )
 
     # Plots. Prefer rendering the same Plotly figures shown on the results
     # page (via Kaleido) so the PDF visually matches the web UI; fall back
     # to the separate Matplotlib PNGs if that's unavailable (e.g. Kaleido's
     # browser isn't installed) or for older runs saved before this existed.
-    max_w = A4[0] - 4*cm
-    max_h = A4[1] - 6*cm
+    max_w = A4[0] - 4 * cm
+    max_h = A4[1] - 6 * cm
 
     def _add_image(target, caption, img_reader_source, is_bytesio=False):
         img = ImageReader(img_reader_source)
@@ -1037,32 +1441,79 @@ def report(run_id):
             img_reader_source.seek(0)
         target.append(RLImage(img_reader_source, width=draw_w, height=draw_h))
 
-    plotly_figs = (data or {}).get("plotly_figs") or []
+    # plotly_figs = (data or {}).get("plotly_figs") or []
+    # plotly_figs = (data or {}).get("plotly_figs") or []
+    plotly_figs = []
     plots_added = False
+
+    if request.method == "POST":
+        raw_plot_states = request.form.get("plot_states", "")
+        if raw_plot_states:
+            try:
+                current_plot_states = json.loads(raw_plot_states)
+
+                for state in current_plot_states:
+                    plotly_figs.append(
+                        {
+                            "fig_json": json.dumps(
+                                {
+                                    "data": state.get("data", []),
+                                    "layout": state.get("layout", {}),
+                                }
+                            )
+                        }
+                    )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                plotly_figs = []
+
+    # For a normal GET request, or if no current browser state was received,
+    # use the Plotly figures saved with the run.
+    if not plotly_figs:
+        plotly_figs = (data or {}).get("plotly_figs") or []
+
+    # Prefer the current Plotly figures from the web UI.
     if plotly_figs:
         plotly_story = [
             PageBreak(),
             Paragraph("Plots", _PDF_H2),
             Paragraph("These match the interactive plots in the web UI.", _PDF_BODY),
         ]
+
         try:
             for item in plotly_figs:
                 png_bytes = _plotly_json_to_png(item["fig_json"])
-                _add_image(plotly_story, item.get("title", ""), io.BytesIO(png_bytes), is_bytesio=True)
+                _add_image(
+                    plotly_story,
+                    item.get("title", ""),
+                    io.BytesIO(png_bytes),
+                    is_bytesio=True,
+                )
+
             story.extend(plotly_story)
             plots_added = True
-        except Exception:
-            traceback.print_exc()  # fall through to the file-based plots below
 
+        except Exception:
+            traceback.print_exc()
+
+    # Fall back to the saved Matplotlib PNGs only if Plotly rendering failed.
     if not plots_added:
         plot_files = sorted(run_dir.glob("plot_*.png"))
-        for name in ("residuals_rho.png", "residuals_theta.png", "residuals.png"):  # last is pre-split runs
+
+        for name in ("residuals_rho.png", "residuals_theta.png", "residuals.png"):
             if (run_dir / name).exists():
                 plot_files.append(run_dir / name)
+
         if plot_files:
             story.append(PageBreak())
             story.append(Paragraph("Plots", _PDF_H2))
-            story.append(Paragraph("Click-to-enlarge and marker styling are available in the web UI; this PDF embeds the same images.", _PDF_BODY))
+            story.append(
+                Paragraph(
+                    "Click-to-enlarge and marker styling are available in the web UI; "
+                    "this PDF embeds the same images.",
+                    _PDF_BODY,
+                )
+            )
+
             for p in plot_files:
                 try:
                     _add_image(story, p.name, str(p))
@@ -1070,7 +1521,12 @@ def report(run_id):
                     story.append(Paragraph(f"(Could not embed {p.name})", _PDF_BODY))
 
     doc.build(story)
-    return send_file(str(pdf_path), as_attachment=True, download_name=pdf_path.name)
+    return send_file(
+        pdf_path,
+        as_attachment=True,
+        download_name=f"{run_id}_report.pdf",
+        mimetype="application/pdf",
+    )
 
 
 if __name__ == "__main__":

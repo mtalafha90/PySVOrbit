@@ -2,155 +2,196 @@
 {% block title %}Fit Results{% endblock %}
 
 {% block content %}
-  <div class="hero">
-    <h1>Fit Results</h1>
-    <div class="subtitle">Run ID: <code>{{ run_id }}</code></div>
+<div class="hero">
+  <h1>Fit Results</h1>
+  <div class="subtitle">Run ID: <code>{{ run_id }}</code></div>
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content:space-between">
+    <div>
+      <h2>Summary</h2>
+
+      {% if stats is defined %}
+      <div class="subtitle">
+        <b>Object:</b> {{ stats.name }} •
+        <span class="term" title="Number of astrometric (visual/interferometric) position measurements used">
+          <b>Positions:</b> {{ stats.npos }}</span> •
+        <span class="term" title="Number of radial-velocity measurements for the primary star">
+          <b>RV1:</b> {{ stats.nrv1 }}</span> •
+        <span class="term" title="Number of radial-velocity measurements for the secondary star">
+          <b>RV2:</b> {{ stats.nrv2 }}</span> •
+        <span class="term" title="Apparent shift due to Earth's orbit, used to convert angular size to distance">
+          <b>Parallax:</b> {{ stats.parallax }} mas</span> •
+        <span class="term"
+          title="Total chi-squared: how well the fit matches the data relative to your quoted measurement errors">
+          <b>Chi²:</b> {{ "%.4g"|format(stats.chi2) }}</span>
+      </div>
+      {% else %}
+      <div class="subtitle"><b>Summary:</b> N/A</div>
+      {% endif %}
+    </div>
+
+    <div class="row">
+      {% if output_csv %}
+      <a class="btn primary" href="{{ url_for('download', run_id=run_id, filename=output_csv) }}">⬇ Download CSV</a>
+      <!-- <a class="btn primary" href="{{ url_for('report', run_id=run_id) }}">⬇ Download PDF Report</a> -->
+      <a class="btn primary" href="{{ url_for('report', run_id=run_id) }}" id="downloadPdfBtn">⬇ Download PDF Report</a>
+      {% endif %}
+      <a class="btn" href="{{ url_for('index') }}">↩ New Fit</a>
+    </div>
   </div>
 
+  <div class="spacer"></div>
+  <details class="glossary">
+    <summary>❔ How do I tell if this is a good fit?</summary>
+    <div class="glossary-body subtitle">
+      Look at <b>reduced chi² per data type</b> below: values close to <b>1</b> mean the fit
+      matches your data about as well as your quoted measurement errors would predict — a good
+      sign. Much <b>larger than 1</b> usually means the model doesn't quite match the data (or
+      your errors were underestimated); much <b>smaller than 1</b> usually means the errors were
+      overestimated. Also check <b>RMS</b> (root-mean-square residual): it tells you, in real
+      units, how far the fit typically misses each data point.
+    </div>
+  </details>
+
+  {% if stats is defined and stats.npos > 0 or stats.nrv1 > 0 or stats.nrv2 > 0 %}
+  <div class="spacer"></div>
+  <table>
+    <thead>
+      <tr>
+        <th>Data type</th>
+        <th>Reduced χ²</th>
+        <th>RMS residual</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if stats.npos > 0 %}
+      <tr>
+        <td>Position angle (θ)</td>
+        <td class="num">{{ "%.3g"|format(stats.chi2n_theta) }}</td>
+        <td class="num">{{ "%.4g"|format(stats.rms_theta) }}°</td>
+      </tr>
+      <tr>
+        <td>Separation (ρ)</td>
+        <td class="num">{{ "%.3g"|format(stats.chi2n_rho) }}</td>
+        <td class="num">{{ "%.4g"|format(stats.rms_rho) }}″</td>
+      </tr>
+      {% endif %}
+      {% if stats.nrv1 > 0 %}
+      <tr>
+        <td>RV1 (primary)</td>
+        <td class="num">{{ "%.3g"|format(stats.chi2n_rv1) }}</td>
+        <td class="num">{{ "%.4g"|format(stats.rms_rv1) }} km/s</td>
+      </tr>
+      {% endif %}
+      {% if stats.nrv2 > 0 %}
+      <tr>
+        <td>RV2 (secondary)</td>
+        <td class="num">{{ "%.3g"|format(stats.chi2n_rv2) }}</td>
+        <td class="num">{{ "%.4g"|format(stats.rms_rv2) }} km/s</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <div class="spacer"></div>
+  <form method="POST" action="{{ url_for('cleanup', run_id=run_id) }}">
+    <button class="btn danger" type="submit">🗑 Delete run files</button>
+  </form>
+</div>
+<div class="grid grid-2">
   <div class="card">
-    <div class="row" style="justify-content:space-between">
-      <div>
-        <h2>Summary</h2>
-
-        {% if stats is defined %}
-          <div class="subtitle">
-            <b>Object:</b> {{ stats.name }} •
-            <span class="term" title="Number of astrometric (visual/interferometric) position measurements used">
-              <b>Positions:</b> {{ stats.npos }}</span> •
-            <span class="term" title="Number of radial-velocity measurements for the primary star">
-              <b>RV1:</b> {{ stats.nrv1 }}</span> •
-            <span class="term" title="Number of radial-velocity measurements for the secondary star">
-              <b>RV2:</b> {{ stats.nrv2 }}</span> •
-            <span class="term" title="Apparent shift due to Earth's orbit, used to convert angular size to distance">
-              <b>Parallax:</b> {{ stats.parallax }} mas</span> •
-            <span class="term" title="Total chi-squared: how well the fit matches the data relative to your quoted measurement errors">
-              <b>Chi²:</b> {{ "%.4g"|format(stats.chi2) }}</span>
-          </div>
-        {% else %}
-          <div class="subtitle"><b>Summary:</b> N/A</div>
-        {% endif %}
-      </div>
-
-      <div class="row">
-        {% if output_csv %}
-          <a class="btn primary" href="{{ url_for('download', run_id=run_id, filename=output_csv) }}">⬇ Download CSV</a>
-          <a class="btn primary" href="{{ url_for('report', run_id=run_id) }}">⬇ Download PDF Report</a>
-        {% endif %}
-        <a class="btn" href="{{ url_for('index') }}">↩ New Fit</a>
-      </div>
-    </div>
-
+    <h2>Orbital Elements</h2>
     <div class="spacer"></div>
-    <details class="glossary">
-      <summary>❔ How do I tell if this is a good fit?</summary>
-      <div class="glossary-body subtitle">
-        Look at <b>reduced chi² per data type</b> below: values close to <b>1</b> mean the fit
-        matches your data about as well as your quoted measurement errors would predict — a good
-        sign. Much <b>larger than 1</b> usually means the model doesn't quite match the data (or
-        your errors were underestimated); much <b>smaller than 1</b> usually means the errors were
-        overestimated. Also check <b>RMS</b> (root-mean-square residual): it tells you, in real
-        units, how far the fit typically misses each data point.
-      </div>
-    </details>
-
-    {% if stats is defined and stats.npos > 0 or stats.nrv1 > 0 or stats.nrv2 > 0 %}
-      <div class="spacer"></div>
-      <table>
-        <thead><tr><th>Data type</th><th>Reduced χ²</th><th>RMS residual</th></tr></thead>
-        <tbody>
-          {% if stats.npos > 0 %}
-            <tr><td>Position angle (θ)</td><td class="num">{{ "%.3g"|format(stats.chi2n_theta) }}</td><td class="num">{{ "%.4g"|format(stats.rms_theta) }}°</td></tr>
-            <tr><td>Separation (ρ)</td><td class="num">{{ "%.3g"|format(stats.chi2n_rho) }}</td><td class="num">{{ "%.4g"|format(stats.rms_rho) }}″</td></tr>
-          {% endif %}
-          {% if stats.nrv1 > 0 %}
-            <tr><td>RV1 (primary)</td><td class="num">{{ "%.3g"|format(stats.chi2n_rv1) }}</td><td class="num">{{ "%.4g"|format(stats.rms_rv1) }} km/s</td></tr>
-          {% endif %}
-          {% if stats.nrv2 > 0 %}
-            <tr><td>RV2 (secondary)</td><td class="num">{{ "%.3g"|format(stats.chi2n_rv2) }}</td><td class="num">{{ "%.4g"|format(stats.rms_rv2) }} km/s</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
-    {% endif %}
-
-    <div class="spacer"></div>
-    <form method="POST" action="{{ url_for('cleanup', run_id=run_id) }}">
-      <button class="btn danger" type="submit">🗑 Delete run files</button>
-    </form>
+    <table>
+      <thead>
+        <tr>
+          <th>Parameter</th>
+          <th>Value</th>
+          <th>Unit</th>
+          <th><span class="term"
+              title="Uncertainty on the fitted value (1-sigma). Only meaningful when Fit? = Yes.">Error</span></th>
+          <th><span class="term"
+              title="Yes = the tool solved for this value. No = it was held fixed at the value from your file.">Fit?</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in elements %}
+        <tr>
+          <td><b class="term" title="{{ glossary.get(row.name, '') }}">{{ row.name }}</b></td>
+          <td class="num">{{ "%.10g"|format(row.value) }}</td>
+          <td>{{ row.unit if row.unit is defined else "" }}{% if row.name in ("P","T") %}<span class="term"
+              title="Guessed from the value's size (>200 means days); the tool doesn't otherwise know your file's time convention.">*</span>{%
+            endif %}</td>
+          <td class="num">{{ "%.3g"|format(row.err) if row.fit==1 else "—" }}</td>
+          <td>{{ "Yes" if row.fit==1 else "No" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-  <div class="grid grid-2">
-    <div class="card">
-      <h2>Orbital Elements</h2>
-      <div class="spacer"></div>
-      <table>
-        <thead>
-          <tr>
-            <th>Parameter</th><th>Value</th><th>Unit</th>
-            <th><span class="term" title="Uncertainty on the fitted value (1-sigma). Only meaningful when Fit? = Yes.">Error</span></th>
-            <th><span class="term" title="Yes = the tool solved for this value. No = it was held fixed at the value from your file.">Fit?</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in elements %}
-            <tr>
-              <td><b class="term" title="{{ glossary.get(row.name, '') }}">{{ row.name }}</b></td>
-              <td class="num">{{ "%.10g"|format(row.value) }}</td>
-              <td>{{ row.unit if row.unit is defined else "" }}{% if row.name in ("P","T") %}<span class="term" title="Guessed from the value's size (>200 means days); the tool doesn't otherwise know your file's time convention.">*</span>{% endif %}</td>
-              <td class="num">{{ "%.3g"|format(row.err) if row.fit==1 else "—" }}</td>
-              <td>{{ "Yes" if row.fit==1 else "No" }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
   <div class="card">
     <h2>Derived quantities (Masses)</h2>
     <div class="spacer"></div>
 
     {% if derived is defined %}
-      {% if derived.warnings and derived.warnings|length > 0 %}
-        <div class="callout">
-          <b>Notes:</b>
-          <ul class="checklist">
-            {% for w in derived.warnings %}
-              <li>{{ w }}</li>
-            {% endfor %}
-          </ul>
-        </div>
-        <div class="spacer"></div>
-      {% endif %}
+    {% if derived.warnings and derived.warnings|length > 0 %}
+    <div class="callout">
+      <b>Notes:</b>
+      <ul class="checklist">
+        {% for w in derived.warnings %}
+        <li>{{ w }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="spacer"></div>
+    {% endif %}
 
-      <table>
-        <thead>
-          <tr><th>Quantity</th><th>Value</th></tr>
-        </thead>
-        <tbody>
-          {% macro derived_row(key, label, tip) %}
-            {% if derived[key] is defined %}
-              <tr>
-                <td class="term" title="{{ tip }}">{{ label|safe }}</td>
-                <td class="num">
-                  {{ "%.6g"|format(derived[key]) }}
-                  {% if derived.override_key == key %}<span class="pill info">entered</span>{% endif %}
-                </td>
-              </tr>
-            {% endif %}
-          {% endmacro %}
-          {{ derived_row("parallax_mas", "Parallax (mas)", "As read from your file, unless entered below") }}
-          {{ derived_row("distance_pc", "Distance (pc)", "Distance = 1000 / parallax (mas)") }}
-          {{ derived_row("a_AU", "a (AU)", "The orbit's physical size: angular size × distance") }}
-          {% if derived.P_yr is defined %}
-            <tr><td class="term" title="Period converted to years, as used in the mass calculation">P (yr used)</td><td class="num">{{ "%.6g"|format(derived.P_yr) }}</td></tr>
-          {% endif %}
-          {{ derived_row("M_total_Msun", "M<sub>total</sub> (M☉)", "Combined mass of both stars, from Kepler's third law (a³/P²)") }}
-          {% if derived.q_M2_over_M1 is defined %}
-            <tr><td class="term" title="Mass ratio: a star with a smaller RV swing (K) is the heavier one">q = M2/M1</td><td class="num">{{ "%.6g"|format(derived.q_M2_over_M1) }}</td></tr>
-          {% endif %}
-          {{ derived_row("M1_Msun", "M1 (M☉)", "Mass of the primary star, in solar masses") }}
-          {{ derived_row("M2_Msun", "M2 (M☉)", "Mass of the secondary star, in solar masses") }}
-        </tbody>
-      </table>
+    <table>
+      <thead>
+        <tr>
+          <th>Quantity</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% macro derived_row(key, label, tip) %}
+        {% if derived[key] is defined %}
+        <tr>
+          <td class="term" title="{{ tip }}">{{ label|safe }}</td>
+          <td class="num">
+            {{ "%.6g"|format(derived[key]) }}
+            {% if derived.override_key == key %}<span class="pill info">entered</span>{% endif %}
+          </td>
+        </tr>
+        {% endif %}
+        {% endmacro %}
+        {{ derived_row("parallax_mas", "Parallax (mas)", "As read from your file, unless entered below") }}
+        {{ derived_row("distance_pc", "Distance (pc)", "Distance = 1000 / parallax (mas)") }}
+        {{ derived_row("a_AU", "a (AU)", "The orbit's physical size: angular size × distance") }}
+        {% if derived.P_yr is defined %}
+        <tr>
+          <td class="term" title="Period converted to years, as used in the mass calculation">P (yr used)</td>
+          <td class="num">{{ "%.6g"|format(derived.P_yr) }}</td>
+        </tr>
+        {% endif %}
+        {{ derived_row("M_total_Msun", "M<sub>total</sub> (M☉)", "Combined mass of both stars, from Kepler's third law
+        (a³/P²)") }}
+        {% if derived.q_M2_over_M1 is defined %}
+        <tr>
+          <td class="term" title="Mass ratio: a star with a smaller RV swing (K) is the heavier one">q = M2/M1</td>
+          <td class="num">{{ "%.6g"|format(derived.q_M2_over_M1) }}</td>
+        </tr>
+        {% endif %}
+        {{ derived_row("M1_Msun", "M1 (M☉)", "Mass of the primary star, in solar masses") }}
+        {{ derived_row("M2_Msun", "M2 (M☉)", "Mass of the secondary star, in solar masses") }}
+      </tbody>
+    </table>
     {% else %}
-      <div class="subtitle">Derived quantities not available.</div>
+    <div class="subtitle">Derived quantities not available.</div>
     {% endif %}
 
     <div class="spacer"></div>
@@ -169,19 +210,21 @@
           <select name="override_key">
             <option value="">— use parallax from file —</option>
             {% for key, label in (derived_labels or {}).items() %}
-              <option value="{{ key }}" {% if derived is defined and derived.override_key == key %}selected{% endif %}>{{ label }}</option>
+            <option value="{{ key }}" {% if derived is defined and derived.override_key==key %}selected{% endif %}>{{
+              label }}</option>
             {% endfor %}
           </select>
-          <input type="number" step="any" min="0" name="override_value" placeholder="value"
-                 {% if derived is defined and derived.override_key %}value="{{ derived[derived.override_key] }}"{% endif %} />
+          <input type="number" step="any" min="0" name="override_value" placeholder="value" {% if derived is defined and
+            derived.override_key %}value="{{ derived[derived.override_key] }}" {% endif %} />
           <button class="btn primary" type="submit">Recalculate</button>
         </form>
       </div>
     </details>
   </div>
-  </div>
+</div>
 
-{% if point_tables is defined and ((point_tables.pos and point_tables.pos|length > 0) or (point_tables.rv1 and point_tables.rv1|length > 0) or (point_tables.rv2 and point_tables.rv2|length > 0)) %}
+{% if point_tables is defined and ((point_tables.pos and point_tables.pos|length > 0) or (point_tables.rv1 and
+point_tables.rv1|length > 0) or (point_tables.rv2 and point_tables.rv2|length > 0)) %}
 <div class="card">
   <h2>Data Points</h2>
   <div class="subtitle">
@@ -193,67 +236,86 @@
 
   <form method="POST" action="{{ url_for('refit', run_id=run_id) }}">
     {% if point_tables.pos and point_tables.pos|length > 0 %}
-      <h3>Positions ({{ point_tables.pos|length }})</h3>
-      <div class="row" style="margin:6px 0;">
-        <button class="btn" type="button" onclick="setAllChecks('pos-table', true)">Select all</button>
-        <button class="btn" type="button" onclick="setAllChecks('pos-table', false)">Select none</button>
-      </div>
-      <div class="scroll-table">
-        <table id="pos-table">
-          <thead>
-            <tr><th></th><th>Epoch</th><th>PA &theta; (&deg;)</th><th>Sep &rho; (&Prime;)</th><th>Err</th><th>Source</th><th>&Delta;&theta;</th><th>&Delta;&rho;</th></tr>
-          </thead>
-          <tbody>
-            {% for row in point_tables.pos %}
-              {% set is_outlier = stats is defined and stats.rms_theta and stats.rms_rho and (row.dtheta|abs > 3*stats.rms_theta or row.drho|abs > 3*stats.rms_rho) %}
-              <tr class="{{ 'outlier' if is_outlier }} {{ 'excluded' if not row.included }}">
-                <td class="chk-col"><input type="checkbox" name="pos_keep_{{ row.idx }}" {% if row.included %}checked{% endif %}></td>
-                <td class="num">{{ "%.4f"|format(row.epoch) }}</td>
-                <td class="num">{{ "%.4f"|format(row.theta) }}</td>
-                <td class="num">{{ "%.4f"|format(row.rho) }}</td>
-                <td class="num">{{ "%.4g"|format(row.err) }}</td>
-                <td>{{ row.source }}</td>
-                <td class="num">{{ "%.4f"|format(row.dtheta) }}</td>
-                <td class="num">{{ "%.4f"|format(row.drho) }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <div class="spacer"></div>
+    <h3>Positions ({{ point_tables.pos|length }})</h3>
+    <div class="row" style="margin:6px 0;">
+      <button class="btn" type="button" onclick="setAllChecks('pos-table', true)">Select all</button>
+      <button class="btn" type="button" onclick="setAllChecks('pos-table', false)">Select none</button>
+    </div>
+    <div class="scroll-table">
+      <table id="pos-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Epoch</th>
+            <th>PA &theta; (&deg;)</th>
+            <th>Sep &rho; (&Prime;)</th>
+            <th>Err</th>
+            <th>Source</th>
+            <th>&Delta;&theta;</th>
+            <th>&Delta;&rho;</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in point_tables.pos %}
+          {% set is_outlier = stats is defined and stats.rms_theta and stats.rms_rho and (row.dtheta|abs >
+          3*stats.rms_theta or row.drho|abs > 3*stats.rms_rho) %}
+          <tr class="{{ 'outlier' if is_outlier }} {{ 'excluded' if not row.included }}">
+            <td class="chk-col"><input type="checkbox" name="pos_keep_{{ row.idx }}" {% if row.included %}checked{%
+                endif %}></td>
+            <td class="num">{{ "%.4f"|format(row.epoch) }}</td>
+            <td class="num">{{ "%.4f"|format(row.theta) }}</td>
+            <td class="num">{{ "%.4f"|format(row.rho) }}</td>
+            <td class="num">{{ "%.4g"|format(row.err) }}</td>
+            <td>{{ row.source }}</td>
+            <td class="num">{{ "%.4f"|format(row.dtheta) }}</td>
+            <td class="num">{{ "%.4f"|format(row.drho) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="spacer"></div>
     {% endif %}
 
     {% for key, title in (("rv1","RV1 (primary)"), ("rv2","RV2 (secondary)")) %}
-      {% set rows = point_tables[key] %}
-      {% if rows and rows|length > 0 %}
-        <h3>{{ title }} ({{ rows|length }})</h3>
-        <div class="row" style="margin:6px 0;">
-          <button class="btn" type="button" onclick="setAllChecks('{{ key }}-table', true)">Select all</button>
-          <button class="btn" type="button" onclick="setAllChecks('{{ key }}-table', false)">Select none</button>
-        </div>
-        <div class="scroll-table">
-          <table id="{{ key }}-table">
-            <thead>
-              <tr><th></th><th>Epoch</th><th>RV (km/s)</th><th>Err</th><th>Source</th><th>&Delta;RV</th></tr>
-            </thead>
-            <tbody>
-              {% set rms = stats[("rms_" ~ key)] if stats is defined else none %}
-              {% for row in rows %}
-                {% set is_outlier = rms and row.drv|abs > 3*rms %}
-                <tr class="{{ 'outlier' if is_outlier }} {{ 'excluded' if not row.included }}">
-                  <td class="chk-col"><input type="checkbox" name="{{ key }}_keep_{{ row.idx }}" {% if row.included %}checked{% endif %}></td>
-                  <td class="num">{{ "%.4f"|format(row.epoch) }}</td>
-                  <td class="num">{{ "%.4f"|format(row.rv) }}</td>
-                  <td class="num">{{ "%.4g"|format(row.err) }}</td>
-                  <td>{{ row.source }}</td>
-                  <td class="num">{{ "%.4f"|format(row.drv) }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        <div class="spacer"></div>
-      {% endif %}
+    {% set rows = point_tables[key] %}
+    {% if rows and rows|length > 0 %}
+    <h3>{{ title }} ({{ rows|length }})</h3>
+    <div class="row" style="margin:6px 0;">
+      <button class="btn" type="button" onclick="setAllChecks('{{ key }}-table', true)">Select all</button>
+      <button class="btn" type="button" onclick="setAllChecks('{{ key }}-table', false)">Select none</button>
+    </div>
+    <div class="scroll-table">
+      <table id="{{ key }}-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Epoch</th>
+            <th>RV (km/s)</th>
+            <th>Err</th>
+            <th>Source</th>
+            <th>&Delta;RV</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set rms = stats[("rms_" ~ key)] if stats is defined else none %}
+          {% for row in rows %}
+          {% set is_outlier = rms and row.drv|abs > 3*rms %}
+          <tr class="{{ 'outlier' if is_outlier }} {{ 'excluded' if not row.included }}">
+            <td class="chk-col"><input type="checkbox" name="{{ key }}_keep_{{ row.idx }}" {% if row.included
+                %}checked{% endif %}></td>
+            <td class="num">{{ "%.4f"|format(row.epoch) }}</td>
+            <td class="num">{{ "%.4f"|format(row.rv) }}</td>
+            <td class="num">{{ "%.4g"|format(row.err) }}</td>
+            <td>{{ row.source }}</td>
+            <td class="num">{{ "%.4f"|format(row.drv) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="spacer"></div>
+    {% endif %}
     {% endfor %}
 
     <button class="btn primary" type="submit">↻ Refit with selected points</button>
@@ -267,58 +329,107 @@
   <div class="spacer"></div>
 
   {% if plotly_figs and plotly_figs|length > 0 %}
-    <div class="grid grid-2">
-      {% for item in plotly_figs %}
-        <div class="card" style="box-shadow:none;">
-          <div class="row" style="justify-content:space-between;">
-            <h3 style="margin:0;">{{ item.title }}</h3>
+  <div class="grid grid-2">
+    {% for item in plotly_figs %}
+    <div class="card" style="box-shadow:none;">
+      <div class="row" style="justify-content:space-between;">
+        <h3 style="margin:0;">{{ item.title }}</h3>
 
-            <div class="row" style="gap:10px;">
-              <label class="subtitle">Color
-                <input type="color" value="#7c5cff"
-                       oninput="setMarkerColor('plot{{ loop.index }}', this.value)">
-              </label>
+        <div class="row" style="gap:10px;">
+          <label class="subtitle">Color
+            <input type="color" value="#7c5cff" oninput="setMarkerColor('plot{{ loop.index }}', this.value)">
+          </label>
 
-              <label class="subtitle">Size
-                <input type="range" min="3" max="18" value="8"
-                       oninput="setMarkerSize('plot{{ loop.index }}', this.value)">
-              </label>
+          <label class="subtitle">Size
+            <input type="range" min="3" max="18" value="8" oninput="setMarkerSize('plot{{ loop.index }}', this.value)">
+          </label>
 
-              <label class="subtitle">Symbol
-                <select onchange="setMarkerSymbol('plot{{ loop.index }}', this.value)">
-                  <option value="circle">circle</option>
-                  <option value="square">square</option>
-                  <option value="diamond">diamond</option>
-                  <option value="cross">cross</option>
-                  <option value="x">x</option>
-                  <option value="triangle-up">triangle-up</option>
-                  <option value="star">star</option>
-                </select>
-              </label>
-            </div>
-          </div>
-
-          <div id="plot{{ loop.index }}" style="height:520px; cursor: zoom-in;"></div>
-
-          <script>
-            (function(){
-              const fig = JSON.parse({{ item.fig_json | tojson }});
-              const divId = "plot{{ loop.index }}";
-
-              Plotly.newPlot(divId, fig.data, fig.layout, {responsive:true});
-
-              document.getElementById(divId).addEventListener("click", function(){
-                openPlotModal(fig);
-              });
-            })();
-          </script>
+          <label class="subtitle">Symbol
+            <select onchange="setMarkerSymbol('plot{{ loop.index }}', this.value)">
+              <option value="circle">circle</option>
+              <option value="square">square</option>
+              <option value="diamond">diamond</option>
+              <option value="cross">cross</option>
+              <option value="x">x</option>
+              <option value="triangle-up">triangle-up</option>
+              <option value="star">star</option>
+            </select>
+          </label>
         </div>
-      {% endfor %}
+      </div>
+
+      <div id="plot{{ loop.index }}" class="plot-container" style="cursor: zoom-in;"></div>
+      <script>
+        (function () {
+          const fig = JSON.parse({{ item.fig_json | tojson }});
+        const divId = "plot{{ loop.index }}";
+
+        Plotly.newPlot(divId, fig.data, fig.layout, { responsive: true });
+
+        document.getElementById(divId).addEventListener("click", function () {
+          openPlotModal(fig);
+        });
+  }) ();
+      </script>
     </div>
+    {% endfor %}
+    <script>
+      document.getElementById("downloadPdfBtn").addEventListener("click", async function (event) {
+        event.preventDefault();
+
+        const button = this;
+        const plotStates = [];
+
+        document.querySelectorAll('[id^="plot"]').forEach(function (gd) {
+          if (gd && gd.data && gd.layout) {
+            plotStates.push({
+              data: gd.data,
+              layout: gd.layout
+            });
+          }
+        });
+
+        button.textContent = "Generating PDF...";
+        button.style.pointerEvents = "none";
+
+        try {
+          const formData = new FormData();
+          formData.append("plot_states", JSON.stringify(plotStates));
+
+          const response = await fetch(this.href, {
+            method: "POST",
+            body: formData
+          });
+
+          if (!response.ok) {
+            throw new Error("PDF generation failed.");
+          }
+
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = "PySVOrbit_Report.pdf";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+
+          window.URL.revokeObjectURL(url);
+        } catch (error) {
+          console.error(error);
+          alert("Could not generate the PDF report.");
+        } finally {
+          button.textContent = "⬇ Download PDF Report";
+          button.style.pointerEvents = "";
+        }
+      });
+    </script>
+  </div>
   {% else %}
-    <div class="subtitle">
-      No interactive plots were generated. This usually means the Plotly JSON failed or the dataset has no RV/pos points.
-    </div>
+  <div class="subtitle">
+    No interactive plots were generated. This usually means the Plotly JSON failed or the dataset has no RV/pos points.
+  </div>
   {% endif %}
 </div>
 

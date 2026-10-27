@@ -2,37 +2,39 @@
 {% block title %}Orbit Fitting{% endblock %}
 
 {% block content %}
-  <div class="hero">
-    <h1>Binary-Star Orbit Fitting</h1>
-    <div class="subtitle">
-      This tool works out how two stars orbit each other from your observations —
-      and, if you provide a parallax, how much each star weighs. New to this? Start
-      with the example file below and the glossary in step 2.
-    </div>
+<div class="hero">
+  <h1>Binary-Star Orbit Fitting</h1>
+  <div class="subtitle">
+    This tool works out how two stars orbit each other from your observations —
+    and, if you provide a parallax, how much each star weighs. New to this? Start
+    with the example file below and the glossary in step 2.
   </div>
+</div>
 
-  <div class="grid grid-2">
-    <div class="card">
-      <h2><span class="step-num" style="display:inline-flex;vertical-align:middle;margin-right:8px;">1</span>Upload your data</h2>
-      <div class="spacer"></div>
-      <div class="subtitle">
-        Accepted formats: <code>.inp</code> (classic orbit-element format) or <code>.csv</code>/<code>.txt</code>
-        (comma-separated, with an instrument/source label on each row). Your file can include
-        astrometric (visual/interferometric) measurements, radial velocities, or both.
-      </div>
-      <div class="spacer"></div>
-      <div class="callout">
+<div class="grid grid-2">
+  <div class="card">
+    <h2><span class="step-num" style="display:inline-flex;vertical-align:middle;margin-right:8px;">1</span>Upload your
+      data</h2>
+    <div class="spacer"></div>
+    <div class="subtitle">
+      Accepted formats: <code>.inp</code> (classic orbit-element format) or <code>.csv</code>/<code>.txt</code>
+      (comma-separated, with an instrument/source label on each row). Your file can include
+      astrometric (visual/interferometric) measurements, radial velocities, or both.
+    </div>
+    <div class="spacer"></div>
+    <!-- <div class="callout">
         🎓 First time here? <a class="term" href="{{ url_for('static', filename='examples/example_visual_binary.inp') }}" download>
         Download a ready-made example file</a> — a synthetic (made-up) binary star with both
         astrometry and radial velocities, so you can see how the tool works before using your own data.
-      </div>
+      </div> -->
 
-      <div class="spacer"></div>
-      <form method="POST" action="{{ url_for('run') }}" enctype="multipart/form-data">
+    <div class="spacer"></div>
+    <!-- <form method="POST" action="{{ url_for('run') }}" enctype="multipart/form-data">
         <input type="file" name="datafile" accept=".inp,.csv,.txt" required />
 
         <div class="spacer"></div>
-        <h2><span class="step-num" style="display:inline-flex;vertical-align:middle;margin-right:8px;">2</span>Choose what to fit</h2>
+        <h2><span class="step-num" style="display:inline-flex;vertical-align:middle;margin-right:8px;">2</span>Choose
+          what to fit</h2>
         <div class="subtitle">
           Each orbital element below can be <b>fit</b> (checked — the tool solves for its best
           value) or <b>fixed</b> (unchecked — kept at the value from your file). Tip: if your
@@ -43,11 +45,11 @@
 
         <div class="param-wrap">
           {% for nm in elnames %}
-            <label class="chk" title="{{ glossary.get(nm, '') }}">
-              <input type="checkbox" name="fit_{{ nm }}" {% if defaults[nm] == 1 %}checked{% endif %}/>
-              <div style="font-weight:800">{{ nm }}</div>
-              <div style="font-size:11px;color:var(--muted);">{{ short_labels.get(nm, '') }}</div>
-            </label>
+          <label class="chk" title="{{ glossary.get(nm, '') }}">
+            <input type="checkbox" name="fit_{{ nm }}" {% if defaults[nm]==1 %}checked{% endif %} />
+            <div style="font-weight:800">{{ nm }}</div>
+            <div style="font-size:11px;color:var(--muted);">{{ short_labels.get(nm, '') }}</div>
+          </label>
           {% endfor %}
         </div>
 
@@ -56,10 +58,20 @@
           <summary>❔ What do P, T, e, a… mean?</summary>
           <div class="glossary-body">
             <table>
-              <thead><tr><th>Symbol</th><th>Name</th><th>Meaning</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Name</th>
+                  <th>Meaning</th>
+                </tr>
+              </thead>
               <tbody>
                 {% for nm in elnames %}
-                  <tr><td><b>{{ nm }}</b></td><td>{{ full_names.get(nm, '') }}</td><td>{{ glossary.get(nm, '') }}</td></tr>
+                <tr>
+                  <td><b>{{ nm }}</b></td>
+                  <td>{{ full_names.get(nm, '') }}</td>
+                  <td>{{ glossary.get(nm, '') }}</td>
+                </tr>
                 {% endfor %}
               </tbody>
             </table>
@@ -68,32 +80,129 @@
 
         <div class="spacer"></div>
         <button class="btn primary" type="submit">▶ Run Fit</button>
-      </form>
-    </div>
+      </form> -->
+    <form method="POST" action="{{ url_for('run') }}" enctype="multipart/form-data">
 
-    <div class="card">
-      <h2>What you'll get</h2>
+      <div class="callout">
+        🎓 First time here? Choose one of the built-in sample datasets below,
+        or upload your own data file.
+      </div>
+
       <div class="spacer"></div>
-      <ul class="subtitle">
-        <li>The best-fit orbital elements, each with an uncertainty (± error)</li>
-        <li>Interactive orbit and radial-velocity plots, plus residuals (how far the fit misses each point)</li>
-        <li>If a parallax is given: the stars' physical masses, in solar masses</li>
-        <li>A downloadable results file (<code>*_output.csv</code>) and a PDF report</li>
-      </ul>
+
+      <div>
+        <label style="font-weight:800; display:block; margin-bottom:8px;">
+          Input data
+        </label>
+
+        <label style="display:block; margin-bottom:8px;">
+          <input type="radio" name="input_mode" value="sample" checked>
+          Use a sample dataset
+        </label>
+
+        <select name="sample_file" style="width:100%; padding:10px; margin-bottom:12px;">
+          <option value="synthetic">Synthetic Example</option>
+          <option value="gl765">GL 765</option>
+          <option value="hd_new">HD New</option>
+          <option value="hip12780">HIP 12780 – FIN379 – Parallax 1</option>
+          <option value="hip51360">HIP 51360</option>
+          <option value="hip53206">HIP 53206</option>
+          <option value="hip72217_p1">HIP 72217 – Parallax 1</option>
+          <option value="hip72217_p2">HIP 72217 – Parallax 2</option>
+        </select>
+
+        <label style="display:block;">
+          <input type="radio" name="input_mode" value="upload">
+          Upload your own file
+        </label>
+
+        <div class="spacer"></div>
+
+        <input type="file" name="datafile" accept=".inp,.csv,.txt" />
+      </div>
+
       <div class="spacer"></div>
+
+      <h2>
+        <span class="step-num" style="display:inline-flex;vertical-align:middle;margin-right:8px;">2</span>
+        Choose what to fit
+      </h2>
+
+      <div class="subtitle">
+        Each orbital element below can be <b>fit</b> (checked — the tool solves for its best
+        value) or <b>fixed</b> (unchecked — kept at the value from your file). Tip: if your
+        file has <b>no radial velocities</b>, fix <code>K1</code>, <code>K2</code> and
+        <code>V0</code>, since there's nothing to constrain them.
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="param-wrap">
+        {% for nm in elnames %}
+        <label class="chk" title="{{ glossary.get(nm, '') }}">
+          <input type="checkbox" name="fit_{{ nm }}" {% if defaults[nm]==1 %}checked{% endif %} />
+          <div style="font-weight:800">{{ nm }}</div>
+          <div style="font-size:11px;color:var(--muted);">{{ short_labels.get(nm, '') }}</div>
+        </label>
+        {% endfor %}
+      </div>
+
+      <div class="spacer"></div>
+
       <details class="glossary">
-        <summary>❔ What is a "fit", exactly?</summary>
-        <div class="glossary-body subtitle">
-          The tool starts from the values in your file and adjusts the checked
-          ("free") parameters, step by step, until the predicted orbit matches
-          your observations as closely as possible — this is called
-          <b>least-squares fitting</b>. The reported <b>error</b> on each
-          parameter reflects how tightly your data pins that value down: a
-          small error means the data strongly constrains it, a large one means
-          it's only loosely determined (often because of too few or unevenly
-          spaced observations).
+        <summary>❔ What do P, T, e, a… mean?</summary>
+        <div class="glossary-body">
+          <table>
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Name</th>
+                <th>Meaning</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for nm in elnames %}
+              <tr>
+                <td><b>{{ nm }}</b></td>
+                <td>{{ full_names.get(nm, '') }}</td>
+                <td>{{ glossary.get(nm, '') }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
       </details>
-    </div>
+
+      <div class="spacer"></div>
+
+      <button class="btn primary" type="submit">▶ Run Fit</button>
+
+    </form>
   </div>
+
+  <div class="card">
+    <h2>What you'll get</h2>
+    <div class="spacer"></div>
+    <ul class="subtitle">
+      <li>The best-fit orbital elements, each with an uncertainty (± error)</li>
+      <li>Interactive orbit and radial-velocity plots, plus residuals (how far the fit misses each point)</li>
+      <li>If a parallax is given: the stars' physical masses, in solar masses</li>
+      <li>A downloadable results file (<code>*_output.csv</code>) and a PDF report</li>
+    </ul>
+    <div class="spacer"></div>
+    <details class="glossary">
+      <summary>❔ What is a "fit", exactly?</summary>
+      <div class="glossary-body subtitle">
+        The tool starts from the values in your file and adjusts the checked
+        ("free") parameters, step by step, until the predicted orbit matches
+        your observations as closely as possible — this is called
+        <b>least-squares fitting</b>. The reported <b>error</b> on each
+        parameter reflects how tightly your data pins that value down: a
+        small error means the data strongly constrains it, a large one means
+        it's only loosely determined (often because of too few or unevenly
+        spaced observations).
+      </div>
+    </details>
+  </div>
+</div>
 {% endblock %}

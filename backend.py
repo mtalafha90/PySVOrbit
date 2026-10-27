@@ -585,7 +585,7 @@ def _residual_panel_fig(t_obs, resid, marker, ylabel, boxtitle):
     ax1.set_title(boxtitle)
     ax1.set_ylim(ax0.get_ylim())
 
-    fig.tight_layout()
+    fig.subplots_adjust(left=0.10, right=0.98, bottom=0.16, top=0.88, wspace=0.25)
     return fig
 
 
