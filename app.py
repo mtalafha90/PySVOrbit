@@ -615,7 +615,7 @@ def _snapshot_points():
     }
 
 
-def _build_point_tables(full, point_filter):
+def _build_point_tables(full, point_filter, flipped_positions=None):
     """Per-observation data + residuals (observed minus fitted, using the
     just-fitted backend.orb.el) for EVERY point read from the file - not
     just the ones used in the fit - so a previously-excluded point can be
@@ -646,6 +646,7 @@ def _build_point_tables(full, point_filter):
                     "dtheta": float(dtheta[i]),
                     "drho": float(drho[i]),
                     "included": included is None or i in included,
+                    "flipped": i in (flipped_positions or []),
                 }
             )
 
@@ -679,6 +680,7 @@ def run_fit_to_dir(
     uploaded_path: Path,
     fixel_map: dict[str, int],
     point_filter: dict | None = None,
+    flipped_positions: list[int] | None = None,
 ) -> dict:
     """
     readinp/readcsv_custom -> [restrict_points] -> apply fixel -> fitorb ->
@@ -703,6 +705,14 @@ def run_fit_to_dir(
                     "CSV upload not supported: backend.readcsv_custom not found in backend.py"
                 )
 
+        # Apply flips to freshly read observations, before filtering, so their
+        # original row indices stay stable even for excluded points.
+        flipped_positions = sorted(set(flipped_positions or []))
+        npos = int(backend.orb.obj.get("npos", 0))
+        if any(not isinstance(i, int) or i < 0 or i >= npos for i in flipped_positions):
+            raise ValueError("Invalid position index for a 180° flip.")
+        for i in flipped_positions:
+            backend.orb.pos[i, 1] = (backend.orb.pos[i, 1] + 180.0) % 360.0
         full_points = _snapshot_points()
 
         if point_filter:
@@ -812,7 +822,7 @@ def run_fit_to_dir(
                 traceback.format_exc(),
             )
         derived = compute_derived(elements, stats)
-        point_tables = _build_point_tables(full_points, point_filter)
+        point_tables = _build_point_tables(full_points, point_filter, flipped_positions)
 
         # Persist the numeric results, plus enough to re-run a fit later
         # (fixel choices, the uploaded filename, current point selection),
@@ -833,6 +843,7 @@ def run_fit_to_dir(
                         "fixel_map": fixel_map,
                         "uploaded_filename": uploaded_path.name,
                         "point_filter": point_filter,
+                        "flipped_positions": flipped_positions,
                     }
                 )
             )
@@ -853,6 +864,7 @@ def run_fit_to_dir(
             "residual_files": residual_files,
             "output_csv": output_csv if output_csv_path.exists() else None,
             "point_tables": point_tables,
+            "flipped_positions": flipped_positions,
         }
 
     finally:
@@ -1060,9 +1072,22 @@ def refit(run_id):
             if request.form.get(f"{key}_keep_{row['idx']}") == "on"
         ]
 
+    flipped_positions = set(data.get("flipped_positions") or [])
+    flip_idx = request.form.get("flip_position")
+    if flip_idx is not None:
+        try:
+            flip_idx = int(flip_idx)
+            if flip_idx not in {row["idx"] for row in point_tables.get("pos", [])}:
+                raise ValueError
+        except ValueError:
+            flash("Invalid position selected for flipping.", "error")
+            return redirect(url_for("index"))
+        flipped_positions.symmetric_difference_update({flip_idx})
+
     try:
         summary = run_fit_to_dir(
-            run_dir, uploaded_path, fixel_map, point_filter=point_filter
+            run_dir, uploaded_path, fixel_map, point_filter=point_filter,
+            flipped_positions=sorted(flipped_positions),
         )
     except Exception as e:
         tb = traceback.format_exc()
