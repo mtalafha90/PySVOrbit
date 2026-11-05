@@ -1231,6 +1231,7 @@ if "summary" in st.session_state:
                     if state_key not in st.session_state:
                         st.session_state[state_key] = row.get("included", True)
 
+        flip_request = None
         for table_name, (table_title, headers) in point_table_specs.items():
             rows = point_tables.get(table_name, [])
             if not rows:
@@ -1249,13 +1250,17 @@ if "summary" in st.session_state:
                         st.session_state[f"point_{table_name}_{row['idx']}"] = False
                     st.rerun()
 
-            header_columns = st.columns(len(headers) + 1)
+            if table_name == "pos":
+                st.caption("Flip a position by 180° and refit; press Undo flip to restore it.")
+            header_columns = st.columns(len(headers) + 1 + (table_name == "pos"))
             header_columns[0].caption("Keep")
             for column, header in zip(header_columns[1:], headers):
                 column.caption(header)
+            if table_name == "pos":
+                header_columns[-1].caption("Flip")
 
             for row in rows:
-                row_columns = st.columns(len(headers) + 1)
+                row_columns = st.columns(len(headers) + 1 + (table_name == "pos"))
                 row_columns[0].checkbox(
                     "Keep point",
                     key=f"point_{table_name}_{row['idx']}",
@@ -1281,12 +1286,20 @@ if "summary" in st.session_state:
                     )
                 for column, value in zip(row_columns[1:], values):
                     column.write(value)
+                if table_name == "pos":
+                    label = "Undo flip" if row.get("flipped") else "Flip 180°"
+                    if row_columns[-1].button(label, key=f"flip_pos_{row['idx']}"):
+                        flip_request = row["idx"]
 
         # -------------------------------------------------
         # Refit with selected points
         # -------------------------------------------------
 
-        if st.button("Refit", type="primary", key="refit"):
+        refit_requested = st.button("Refit", type="primary", key="refit")
+        if refit_requested or flip_request is not None:
+            flipped_positions = set(summary.get("flipped_positions") or [])
+            if flip_request is not None:
+                flipped_positions.symmetric_difference_update({flip_request})
             point_filter = {
                 table_name: [
                     row["idx"]
@@ -1309,6 +1322,7 @@ if "summary" in st.session_state:
                             uploaded_path=Path(st.session_state["uploaded_path"]),
                             fixel_map=st.session_state["fixel_map"],
                             point_filter=point_filter,
+                            flipped_positions=sorted(flipped_positions),
                         )
                     st.session_state["summary"] = refit_summary
                     st.session_state["run_dir"] = str(run_dir)

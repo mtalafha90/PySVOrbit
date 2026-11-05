@@ -127,6 +127,11 @@ degrees) or sexagesimal, separated by spaces or colons — `12 34 33.1` and
   excluding points removes every observation from one instrument in a
   multi-instrument CSV, that instrument's `dV0` zero-point offset
   parameter is automatically dropped too.
+- **Flipping a position by 180°**: in either web interface, use the
+  **Flip 180°** button beside a position to reverse its position angle and
+  refit. Select **Undo flip** to restore the original angle. The choice is
+  retained on subsequent refits, including for excluded observations; the
+  uploaded input file is not changed.
 - **Solving derived quantities from any known value**: parallax,
   distance, physical semi-major axis (AU), total mass, M1, and M2 are all
   linked by the same physics (parallax ↔ distance ↔ a(AU) ↔ M_total ↔
