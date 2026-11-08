@@ -59,8 +59,8 @@ def test_ephemeris_is_algebraically_equivalent_to_true_anomaly_form(eccentricity
         positions.append([AA*x + FF*y, BB*x + GG*y])
         factor = eccentricity*np.cos(w) + np.cos(nu+w)
         velocities.append([systemic+k1*factor, systemic-k2*factor])
-    assert backend.eph(el, times) == pytest.approx(positions, abs=1e-10)
-    assert backend.eph(el, times, rv=True) == pytest.approx(velocities, abs=1e-10)
+    np.testing.assert_allclose(backend.eph(el, times), np.array(positions), atol=1e-10, rtol=0)
+    np.testing.assert_allclose(backend.eph(el, times, rv=True), np.array(velocities), atol=1e-10, rtol=0)
 
 
 def test_optimizer_invalid_trial_is_penalized_without_ephemeris_evaluation(monkeypatch):
