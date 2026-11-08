@@ -107,56 +107,60 @@ def _wrap_deg_diff(diff):
 
 # Ephemeris calculation
 def eph(el, t, rho=False, rv=False):
+    """Evaluate a bound Keplerian orbit, rejecting unphysical eccentricities.
+
+    Use eccentric-anomaly components rather than sqrt((1+e)/(1-e)) and
+    tan(E/2).  These expressions are algebraically equivalent for an
+    elliptical orbit but remain numerically well-behaved close to e=1.
+    """
     n = len(t)
     res = np.zeros((n, 2), dtype=float)
     pi2 = 2 * np.pi
     gr = 180 / np.pi
 
-    # el may carry extra per-instrument RV offset parameters appended past
-    # the base 10 (see OrbitData.N_BASE / rv_offset_index); the orbit
-    # geometry itself only ever depends on the first 10.
+    # Extra fitted RV instrument offsets, when present, are ignored here.
     P, T, SF, a, W, w, i, K1, K2, V0 = el[:10]
-    CF2 = 1 - SF**2
-    CF = np.sqrt(CF2)
-    EC = np.sqrt((1 + SF) / (1 - SF))
+    if not np.all(np.isfinite(el[:10])):
+        raise ValueError("Orbital elements must be finite numbers.")
+    if not (0 <= SF < 1):
+        raise ValueError(
+            f"Invalid eccentricity e={SF!r}: a bound Keplerian orbit requires 0 <= e < 1."
+        )
+    if P <= 0 or a <= 0:
+        raise ValueError("A bound Keplerian orbit requires P > 0 and a > 0.")
+
+    sin_factor = np.sqrt((1 - SF) * (1 + SF))
     CWW = np.cos(W / gr)
     SWW = np.sin(W / gr)
     CW = np.cos(w / gr)
     SW = np.sin(w / gr)
     CI = np.cos(i / gr)
-    SI = np.sin(i / gr)
 
-    if rv:
-        for k in range(n):
-            dt = t[k] - T
-            phase = (dt / P) % 1
-            if phase < 0:
-                phase += 1
-            ANM = phase * pi2
-            E1 = _solve_kepler(ANM, SF)
-            V = 2 * np.arctan(EC * np.tan(E1 / 2))
-            U = V + w / gr
-            CU = np.cos(U)
-            A1 = SF * CW + CU
-            res[k, 0] = V0 + K1 * A1
-            res[k, 1] = V0 - K2 * A1
-    else:
+    if not rv:
         AA = a * (CW * CWW - SW * SWW * CI)
         BB = a * (CW * SWW + SW * CWW * CI)
         FF = a * (-SW * CWW - CW * SWW * CI)
         GG = a * (-SW * SWW + CW * CWW * CI)
-        for k in range(n):
-            dt = t[k] - T
-            phase = (dt / P) % 1
-            if phase < 0:
-                phase += 1
-            ANM = phase * pi2
-            E1 = _solve_kepler(ANM, SF)
-            V = 2 * np.arctan(EC * np.tan(E1 / 2))
-            CV = np.cos(V)
-            R = CF2 / (1 + SF * CV)
-            X = R * CV
-            Y = R * np.sin(V)
+
+    for k in range(n):
+        phase = ((t[k] - T) / P) % 1
+        E = _solve_kepler(phase * pi2, SF)
+        cos_E = np.cos(E)
+        sin_E = np.sin(E)
+
+        # Elliptical orbital coordinates in the orbital plane:
+        # X = r*cos(nu)/a = cos(E)-e, Y = r*sin(nu)/a = sqrt(1-e²)*sin(E).
+        X = cos_E - SF
+        Y = sin_factor * sin_E
+
+        if rv:
+            # cos(nu) and sin(nu), without unstable tan(E/2) evaluation.
+            denom = 1 - SF * cos_E  # positive for every bound ellipse
+            cosine_v_plus_w = (X * CW - Y * SW) / denom
+            factor = SF * CW + cosine_v_plus_w
+            res[k, 0] = V0 + K1 * factor
+            res[k, 1] = V0 - K2 * factor
+        else:
             res[k, 0] = AA * X + FF * Y
             res[k, 1] = BB * X + GG * Y
 
