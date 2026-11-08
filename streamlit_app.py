@@ -821,9 +821,9 @@ with st.container(border=True):
         'Each orbital element below can be <b>fit</b> '
         '(checked — the tool solves for its best value) or '
         '<b>fixed</b> (unchecked — kept at the value from your file). '
-        'Tip: if your file has <b>no radial velocities</b>, fix '
-        '<code>K1</code>, <code>K2</code> and <code>V0</code>, '
-        'since there is nothing to constrain them.'
+        'The fitter automatically holds unsupported RV parameters fixed '
+        'and respects elements prefixed with <code>*</code> in the file, '
+        'even if their checkboxes are selected.'
         '</p>',
         unsafe_allow_html=True,
     )
