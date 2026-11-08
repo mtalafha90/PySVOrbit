@@ -108,6 +108,25 @@ Two formats are accepted, both documented by the bundled examples.
 fixed during the fit by prefixing the element name with an asterisk, for
 example `*e 0.0` to force a circular orbit.
 
+**Input validation and unit handling (November 2026):** You can explicitly
+specify `Period_Unit: years` or `Period_Unit: days` in an `.inp` file.
+If omitted, the unit is inferred from the periastron time `T`: ordinary
+year epochs imply years, whereas MJD/JD epochs imply days. Periods greater
+than 200 are **not** automatically days when `T` is known. The reader
+accepts observation dates as years, MJD, or full JD and converts them to
+the scale of `T`. The web interfaces respect `*K1`/`*K2` etc. in the
+file even if a checkbox is selected; velocity parameters without the
+corresponding velocity observations are always held fixed.
+
+Fitting stops with an actionable error if the input has nonpositive
+uncertainties, an impossible initial `P`, `a` or `e`, duplicate RV rows,
+or too few residuals for the number of free parameters. Input files
+explicitly named `*_INCOMPLETE.inp` are never fitted. Duplicate RV
+rows should be inspected and de-duplicated at the source; no source
+measurements or 180-degree astrometric quadrants are silently edited.
+For highly eccentric initial orbits (`e >= 0.85`), bounded trust-region
+optimization enforces `0 <= e < 1`.
+
 **CSV** — a more flexible variant in which each radial-velocity row may
 carry a source label in its final column, identifying the instrument it
 came from.
