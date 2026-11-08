@@ -49,7 +49,8 @@ def test_visual_only_file_automatically_holds_velocity_elements(tmp_path):
 
 
 def test_file_marked_fixed_parameter_is_not_accidentally_free(tmp_path):
-    file = _input(tmp_path, extra="*P 10.0")
+    file = _input(tmp_path)
+    file.write_text(file.read_text().replace("P 10.0", "*P 10.0"))
     backend.readinp(str(file))
     assert backend.orb.fixel[backend.orb.elname.index("P")] == 0
 
