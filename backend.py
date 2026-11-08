@@ -59,11 +59,22 @@ M_SUN_KG = 1.989e30     # kg
 SEC_PER_YEAR = 365.25 * 86400.0
 
 
-def _period_in_years(P):
-    """Best-effort P unit detection: input files may give the period in
-    days or in years. Values above ~200 are treated as days (a period of
-    200 years is astrophysically implausible for the binaries this tool
-    targets, while 200 days is a common close-binary period)."""
+def _period_in_years(P, T=None, unit=None):
+    """Convert P to years using a declared unit or the time scale of T.
+
+    A period above 200 may still be hundreds of years, not days.
+    The older P>200 convention remains only for direct legacy callers
+    providing neither epoch T nor an explicit unit.
+    """
+    if unit is not None:
+        normalized = str(unit).strip().lower()
+        if normalized in ('year', 'years', 'yr', 'yrs', 'y'):
+            return P
+        if normalized in ('day', 'days', 'd'):
+            return P / 365.25
+        raise ValueError(f"Unknown period unit {unit!r}; expected years or days")
+    if T is not None:
+        return P / 365.25 if float(T) > 3000 else P
     return P / 365.25 if P > 200 else P
 
 def _solve_kepler(ANM, SF, tol=1e-5, max_iter=100):
@@ -177,12 +188,30 @@ def getcoord(s):
 
 # Time correction
 def correct(data, t0):
+    """Convert observation epochs to the time scale of periastron T.
+
+    Supports year coordinates, MJD and full JD.  JD >2 million is not MJD.
+    """
+    if data is None or len(data) == 0:
+        return
     time = data[:, 0]
-    for i in range(len(time)):
-        if time[i] < 3000 and t0 > 3000:
-            data[i, 0] = 365.242198781 * (time[i] - 1900) + 15020.31352
-        elif time[i] > 3000 and t0 < 3000:
-            data[i, 0] = 1900 + (time[i] - 15020.31352) / 365.242198781
+    if t0 > 2_000_000:  # full JD
+        for j, t in enumerate(time):
+            if t < 3000:
+                time[j] = 365.242198781 * (t - 1900) + 15020.31352 + 2400000.5
+            elif t < 2_000_000:
+                time[j] = t + 2400000.5
+    elif t0 > 3000:  # MJD
+        for j, t in enumerate(time):
+            if t < 3000:
+                time[j] = 365.242198781 * (t - 1900) + 15020.31352
+            elif t > 2_000_000:
+                time[j] = t - 2400000.5
+    else:  # decimal/Besselian years
+        for j, t in enumerate(time):
+            if t > 3000:
+                mjd = t - 2400000.5 if t > 2_000_000 else t
+                time[j] = 1900 + (mjd - 15020.31352) / 365.242198781
 
 def _rebuild_rv_offsets():
     """(Re)build the per-instrument RV zero-point offset parameters
@@ -212,6 +241,16 @@ def _rebuild_rv_offsets():
               f"relative to reference source '{all_sources[0]}'.")
 
 
+def _fix_unobserved_velocity_parameters():
+    """Disable velocity parameters unconstrained by any surviving observations."""
+    if orb.obj['nrv1'] == 0:
+        orb.fixel[orb.elname.index('K1')] = 0
+    if orb.obj['nrv2'] == 0:
+        orb.fixel[orb.elname.index('K2')] = 0
+    if orb.obj['nrv1'] == 0 and orb.obj['nrv2'] == 0:
+        orb.fixel[orb.elname.index('V0')] = 0
+
+
 def restrict_points(pos_keep=None, rv1_keep=None, rv2_keep=None):
     """Restrict the position/RV1/RV2 arrays (and their source labels) to
     the given row indices (None = keep all as read). Must be called after
@@ -236,6 +275,7 @@ def restrict_points(pos_keep=None, rv1_keep=None, rv2_keep=None):
     orb.rv2, orb.rv2_source, orb.rv2_orig_idx = _apply(orb.rv2, orb.rv2_source, orb.rv2_orig_idx, rv2_keep, 'nrv2')
 
     _rebuild_rv_offsets()
+    _fix_unobserved_velocity_parameters()
     orb.initial_el = orb.el.copy()
 
 
@@ -338,12 +378,14 @@ def readcsv_custom(fname):
         correct(orb.pos, orb.el[1])
 
     _rebuild_rv_offsets()
+    _fix_unobserved_velocity_parameters()
 
     orb.graph['mode'] = 1 if (krv1 > 0 or krv2 > 0) else 0
     # HM: ─── save the *initial* elements for later overlay & printing ───
     orb.initial_el = orb.el.copy()
 
 def readinp(fname):
+    """Read a .inp orbit while retaining fixed flags and observation sources."""
     global orb
     orb.el = np.zeros(OrbitData.N_BASE)
     orb.fixel = np.ones(OrbitData.N_BASE, dtype=int)
@@ -353,101 +395,86 @@ def readinp(fname):
     orb.rv2_source = []
     orb.pos_source = []
     orb.rv_offset_index = {}
-    nmax = 500
+    orb.obj = {'name': '', 'radeg': 0.0, 'dedeg': 0.0,
+               'npos': 0, 'nrv1': 0, 'nrv2': 0,
+               'rms': np.zeros(4), 'chi2n': np.zeros(4), 'chi2': 0.0,
+               'fname': fname, 'parallax': 0.0, 'period_unit': None}
+    orb.graph = {'mode': 0}
+    if not os.path.exists(fname):
+        raise FileNotFoundError(f"File {fname} not found")
+
+    with open(fname, 'r', encoding='utf-8-sig') as handle:
+        lines = handle.readlines()
+    nmax = max(500, len(lines))
     orb.pos = np.zeros((nmax, 6))
     orb.rv1 = np.zeros((nmax, 3))
     orb.rv2 = np.zeros((nmax, 3))
-    orb.obj['fname'] = fname
+    kpos = krv1 = krv2 = 0
 
-    if not os.path.exists(fname):
-        print(f"File {fname} not found")
-        orb.obj['fname'] = ''
-        return
-
-    with open(fname, 'r') as f:
-        lines = f.readlines()
-
-    kpos = 0
-    krv1 = 0
-    krv2 = 0
-    for i, line in enumerate(lines):
-        line = line.strip()
-        if line.startswith('C'):
+    for lineno, raw_line in enumerate(lines, 1):
+        line = raw_line.strip()
+        if not line or line.startswith('#') or line == 'C' or line.startswith('C '):
             continue
-        fix = 0 if line.startswith('*') else 1
         parts = line.split()
-        if not parts:
-            continue
-        # An element line may be prefixed with '*' to hold that element fixed
-        # during the fit, written either as '*K1 0.0' or '* K1 0.0'. Strip the
-        # marker off the name token, otherwise '*K1' fails the elname lookup
-        # below, the element is silently dropped (keeping its initial value of
-        # zero) AND it stays free -- so an astrometry-only file ends up fitting
-        # K1/K2/V0 against no radial velocities at all.
+        fix = 0 if line.startswith('*') else 1
         if parts[0] == '*':
             parts = parts[1:]
-            if not parts:
-                continue
         elif parts[0].startswith('*'):
-            parts = [parts[0][1:]] + parts[1:]
-        # Normalize the key for metadata matching (case/period/colon
-        # insensitive, e.g. 'R.A.:', 'ra:' and 'RA:' all match), but leave
-        # parts[0] itself untouched for the orbital-element check below,
-        # since element names are case-sensitive ('w' vs 'W' differ).
-        key = parts[0].strip().rstrip(':').replace('.', '').upper()
-        if key == 'OBJECT':
-            orb.obj['name'] = ' '.join(parts[1:])
-        elif key == 'RA':
-            orb.obj['radeg'] = 15 * getcoord(parts[1])
-        elif key in ('DEC', 'DECLINATION'):
-            orb.obj['dedeg'] = getcoord(parts[1])
-        elif key in ('PARALLAX', 'PLX'):
-            orb.obj['parallax'] = float(parts[1])
-        elif parts[0] in orb.elname:
-            ind = orb.elname.index(parts[0])
-            orb.el[ind] = float(parts[1])
-            orb.fixel[ind] = fix
-        elif 'I1' in line and len(parts) >= 4:
-            orb.pos[kpos, 0:4] = [float(p) for p in parts[0:4]]
-            kpos += 1
-        elif 'Va' in line and len(parts) >= 3:
-            orb.rv1[krv1, 0:3] = [float(p) for p in parts[0:3]]
-            krv1 += 1
-        elif 'Vb' in line and len(parts) >= 3:
-            orb.rv2[krv2, 0:3] = [float(p) for p in parts[0:3]]
-            krv2 += 1
+            parts[0] = parts[0][1:]
+        if not parts:
+            continue
+        key = parts[0].strip().rstrip(':').replace('.', '').replace('_', '').upper()
+        try:
+            if key == 'OBJECT':
+                orb.obj['name'] = ' '.join(parts[1:])
+            elif key == 'RA':
+                orb.obj['radeg'] = 15 * getcoord(' '.join(parts[1:]))
+            elif key in ('DEC', 'DECLINATION'):
+                orb.obj['dedeg'] = getcoord(' '.join(parts[1:]))
+            elif key in ('PARALLAX', 'PLX'):
+                orb.obj['parallax'] = float(parts[1])
+            elif key in ('PERIODUNIT', 'PUNIT'):
+                value = parts[1].lower()
+                if value not in ('year', 'years', 'yr', 'yrs', 'day', 'days', 'd'):
+                    raise ValueError("Period_Unit must be years or days")
+                orb.obj['period_unit'] = value
+            elif parts[0] in orb.elname:
+                ind = orb.elname.index(parts[0])
+                orb.el[ind] = float(parts[1])
+                orb.fixel[ind] = fix
+            elif len(parts) >= 5 and parts[4] == 'I1':
+                orb.pos[kpos, :4] = [float(p) for p in parts[:4]]
+                orb.pos_source.append(parts[5] if len(parts) > 5 else 'unspecified')
+                kpos += 1
+            elif len(parts) >= 4 and parts[3] == 'Va':
+                orb.rv1[krv1, :3] = [float(p) for p in parts[:3]]
+                orb.rv1_source.append(parts[4] if len(parts) > 4 else 'unspecified')
+                krv1 += 1
+            elif len(parts) >= 4 and parts[3] == 'Vb':
+                orb.rv2[krv2, :3] = [float(p) for p in parts[:3]]
+                orb.rv2_source.append(parts[4] if len(parts) > 4 else 'unspecified')
+                krv2 += 1
+        except (ValueError, IndexError) as exc:
+            raise ValueError(f"{os.path.basename(fname)} line {lineno}: {exc}") from exc
 
-    orb.pos = orb.pos[:kpos, :] if kpos > 0 else np.array([])
-    orb.rv1 = orb.rv1[:krv1, :] if krv1 > 0 else np.array([])
-    orb.rv2 = orb.rv2[:krv2, :] if krv2 > 0 else np.array([])
+    orb.pos = orb.pos[:kpos, :]
+    orb.rv1 = orb.rv1[:krv1, :]
+    orb.rv2 = orb.rv2[:krv2, :]
     orb.pos_orig_idx = list(range(kpos))
     orb.rv1_orig_idx = list(range(krv1))
     orb.rv2_orig_idx = list(range(krv2))
-
-    if kpos > 0:
-        correct(orb.pos, orb.el[1])
-    if krv1 > 0:
-        correct(orb.rv1, orb.el[1])
-    if krv2 > 0:
-        correct(orb.rv2, orb.el[1])
-
-    print(f"Position measures: {kpos}")
-    print(f"RV measures: {krv1}, {krv2}")
     orb.obj['npos'] = kpos
     orb.obj['nrv1'] = krv1
     orb.obj['nrv2'] = krv2
-    orb.elerr = np.zeros(10)
-    orb.graph['mode'] = 1 if (krv1 > 0 or krv2 > 0) else 0
-    # HM:─── save the *initial* elements for later overlay & printing ───
+    for arr in (orb.pos, orb.rv1, orb.rv2):
+        if len(arr):
+            correct(arr, orb.el[1])
+    _rebuild_rv_offsets()
+    _fix_unobserved_velocity_parameters()
+    orb.graph['mode'] = 1 if (krv1 or krv2) else 0
     orb.initial_el = orb.el.copy()
-    # Modifed by M.H. TALAFHA 20/05/2025
-    # If radial velocities are not included in the data file, you have to fix some paramters to ensure perfect fitting
-    # We have 10 parameters 'P', 'T', 'e', 'a', 'W', 'w', 'i', 'K1', 'K2', 'V0'
-    # if you want to fix the last 3 for example you should slice the array [7:10]
-    # if more needed to be fixed slice the array [5:10], this will fix the last 5 parameters
-    #if krv1 == 0 and krv2 == 0:
-    #  orb.fixel[7:10] = 0  # Fix K1, K2, V0
-    #  print("No RV data, fixing K1, K2, V0")
+    print(f"Position measures: {kpos}")
+    print(f"RV measures: {krv1}, {krv2}")
 
 # Orbit plotting
 def orbplot_streamlit():
@@ -845,19 +872,74 @@ def fitorb(rms_only=False):
         err[2*npos+nrv1:] = orb.rv2[:, 2]
 
     selfit = np.where(orb.fixel > 0)[0]
+    if n == 0:
+        raise ValueError("No observations were found in this file.")
+    if np.any(~np.isfinite(err)) or np.any(err <= 0):
+        raise ValueError("Every position/RV point must have a positive finite uncertainty; position separations must also be > 0.")
+    if not np.isfinite(orb.el[:OrbitData.N_BASE]).all():
+        raise ValueError("Initial orbital elements must be finite.")
+    if orb.el[0] <= 0 or orb.el[3] <= 0 or not (0 <= orb.el[2] < 1):
+        raise ValueError("Invalid initial orbit: require P > 0, a > 0 and 0 <= e < 1.")
+    if '_INCOMPLETE' in os.path.basename(orb.obj.get('fname', '')).upper():
+        raise ValueError("This input is marked INCOMPLETE_DO_NOT_FIT; collect verified observations first.")
+    if n <= len(selfit):
+        raise ValueError(
+            f"Not enough independent information: {n} residuals versus {len(selfit)} free parameters. "
+            "Hold additional elements fixed or obtain more observations."
+        )
+    for label, array, sources in (('RV1', orb.rv1, orb.rv1_source),
+                                  ('RV2', orb.rv2, orb.rv2_source)):
+        if len(array):
+            labels = sources if len(sources) == len(array) else [''] * len(array)
+            observations = [(*map(float, row), labels[k])
+                            for k, row in enumerate(array)]
+            n_duplicates = len(observations) - len(set(observations))
+            if n_duplicates:
+                raise ValueError(
+                    f"{label} has {n_duplicates} exactly duplicated measurements; "
+                    "review and remove duplicates before fitting."
+                )
     print(f"Fitting {len(selfit)} elements: {[orb.elname[i] for i in selfit]}")
     print(f"Total observations: {n} (npos={npos}, nrv1={nrv1}, nrv2={nrv2})")
     par = orb.el[selfit]
     def residuals(params):
+      trial = orb.el.copy()
+      trial[selfit] = params
+      # LM has no physical bounds. Avoid calling the Kepler solver at
+      # e >= 1 or an invalid period / semi-major axis.
+      if (not np.isfinite(trial).all() or trial[0] <= 0 or trial[3] <= 0
+              or not (0 <= trial[2] < 1)):
+          return np.full(n, 1e8)
       y1 = np.array([alleph(params, i)[0] for i in range(n)])
       diff = yy - y1
       if npos > 0:
           diff[:npos] = _wrap_deg_diff(diff[:npos])  # theta is circular
       return diff / err
-    if rms_only:
+    if rms_only or len(selfit) == 0:
         y1 = np.array([alleph(par, i)[0] for i in range(n)])
     else:
-        result = least_squares(residuals, par, method='lm', max_nfev=1000, ftol=1e-10, xtol=1e-10, verbose=2)
+        if orb.fixel[2] and orb.el[2] >= 0.85:
+            # Highly eccentric systems need physical bounds throughout the
+            # fit; keep LM for the ordinary cases and existing diagnostics.
+            lower = np.full(len(selfit), -np.inf)
+            upper = np.full(len(selfit), np.inf)
+            for k, idx in enumerate(selfit):
+                if idx in (0, 3):
+                    lower[k] = 1e-12
+                if idx == 2:
+                    lower[k], upper[k] = 0.0, 0.999999
+            result = least_squares(residuals, par, method='trf',
+                                   bounds=(lower, upper), max_nfev=1000,
+                                   ftol=1e-10, xtol=1e-10, verbose=0)
+        else:
+            result = least_squares(residuals, par, method='lm',
+                                   max_nfev=1000, ftol=1e-10, xtol=1e-10, verbose=0)
+        if not result.success or not np.isfinite(result.x).all():
+            raise RuntimeError(f"Orbital optimizer did not converge: {result.message}")
+        trial_el = orb.el.copy()
+        trial_el[selfit] = result.x
+        if trial_el[0] <= 0 or trial_el[3] <= 0 or not (0 <= trial_el[2] < 1):
+            raise RuntimeError("Optimizer returned an unphysical orbit; fix poorly constrained elements and retry.")
         par = result.x
         y1 = yy - result.fun * err
         orb.el[selfit] = par
@@ -936,8 +1018,8 @@ def fitorb(rms_only=False):
 
     # HM: ─── compute and print masses for initial elements ───
     P0, e0, i0, K10, K20 = orb.initial_el[0], orb.initial_el[2], orb.initial_el[6], orb.initial_el[7], orb.initial_el[8]
-    total_mass0 = calculate_total_mass(P0, orb.initial_el[3], orb.obj['parallax'])
-    M12_sin3i0, M10, M20 = calculate_spectroscopic_masses(P0, e0, i0, K10, K20)
+    total_mass0 = calculate_total_mass(P0, orb.initial_el[3], orb.obj['parallax'], T=orb.initial_el[1], period_unit=orb.obj.get('period_unit'))
+    M12_sin3i0, M10, M20 = calculate_spectroscopic_masses(P0, e0, i0, K10, K20, T=orb.initial_el[1], period_unit=orb.obj.get('period_unit'))
 
     print("\nInitial Mass Estimates:")
     print(f" Total mass (from a, P, π): {total_mass0:.3f} solar masses")
@@ -961,10 +1043,10 @@ def fitorb(rms_only=False):
     return yy, y1
 
 # Calculate total mass
-def calculate_total_mass(P, a, parallax):
+def calculate_total_mass(P, a, parallax, T=None, period_unit=None):
     if parallax <= 0:
         return 0.0
-    P_yr = _period_in_years(P)
+    P_yr = _period_in_years(P, T=T, unit=period_unit)
     distance_pc = 1000.0 / parallax
     a_au = a * distance_pc
     # Kepler's third law in solar units: M_total [Msun] = a[AU]^3 / P[yr]^2
@@ -972,11 +1054,11 @@ def calculate_total_mass(P, a, parallax):
     return total_mass
 
 # Calculate spectroscopic masses
-def calculate_spectroscopic_masses(P, e, i, K1, K2):
+def calculate_spectroscopic_masses(P, e, i, K1, K2, T=None, period_unit=None):
     if K1 == 0 and K2 == 0:
         return 0.0, 0.0, 0.0
 
-    P_sec = _period_in_years(P) * SEC_PER_YEAR
+    P_sec = _period_in_years(P, T=T, unit=period_unit) * SEC_PER_YEAR
 
     i_rad = np.radians(i)
     sin_i = np.sin(i_rad)
@@ -1053,8 +1135,8 @@ def orbsave():
     else:
         rv2_df = pd.DataFrame()
 
-    total_mass = calculate_total_mass(orb.el[0], orb.el[3], orb.obj['parallax'])
-    M12_sin3i, M1, M2 = calculate_spectroscopic_masses(orb.el[0], orb.el[2], orb.el[6], orb.el[7], orb.el[8])
+    total_mass = calculate_total_mass(orb.el[0], orb.el[3], orb.obj['parallax'], T=orb.el[1], period_unit=orb.obj.get('period_unit'))
+    M12_sin3i, M1, M2 = calculate_spectroscopic_masses(orb.el[0], orb.el[2], orb.el[6], orb.el[7], orb.el[8], T=orb.el[1], period_unit=orb.obj.get('period_unit'))
 
     stats_data = {
         'Metric': ['CHI2', 'CHI2/N_Theta', 'CHI2/N_Rho', 'CHI2/N_RV1', 'CHI2/N_RV2',
