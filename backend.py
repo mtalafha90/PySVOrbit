@@ -872,19 +872,74 @@ def fitorb(rms_only=False):
         err[2*npos+nrv1:] = orb.rv2[:, 2]
 
     selfit = np.where(orb.fixel > 0)[0]
+    if n == 0:
+        raise ValueError("No observations were found in this file.")
+    if np.any(~np.isfinite(err)) or np.any(err <= 0):
+        raise ValueError("Every position/RV point must have a positive finite uncertainty; position separations must also be > 0.")
+    if not np.isfinite(orb.el[:OrbitData.N_BASE]).all():
+        raise ValueError("Initial orbital elements must be finite.")
+    if orb.el[0] <= 0 or orb.el[3] <= 0 or not (0 <= orb.el[2] < 1):
+        raise ValueError("Invalid initial orbit: require P > 0, a > 0 and 0 <= e < 1.")
+    if '_INCOMPLETE' in os.path.basename(orb.obj.get('fname', '')).upper():
+        raise ValueError("This input is marked INCOMPLETE_DO_NOT_FIT; collect verified observations first.")
+    if n <= len(selfit):
+        raise ValueError(
+            f"Not enough independent information: {n} residuals versus {len(selfit)} free parameters. "
+            "Hold additional elements fixed or obtain more observations."
+        )
+    for label, array, sources in (('RV1', orb.rv1, orb.rv1_source),
+                                  ('RV2', orb.rv2, orb.rv2_source)):
+        if len(array):
+            labels = sources if len(sources) == len(array) else [''] * len(array)
+            observations = [(*map(float, row), labels[k])
+                            for k, row in enumerate(array)]
+            n_duplicates = len(observations) - len(set(observations))
+            if n_duplicates:
+                raise ValueError(
+                    f"{label} has {n_duplicates} exactly duplicated measurements; "
+                    "review and remove duplicates before fitting."
+                )
     print(f"Fitting {len(selfit)} elements: {[orb.elname[i] for i in selfit]}")
     print(f"Total observations: {n} (npos={npos}, nrv1={nrv1}, nrv2={nrv2})")
     par = orb.el[selfit]
     def residuals(params):
+      trial = orb.el.copy()
+      trial[selfit] = params
+      # LM has no physical bounds. Avoid calling the Kepler solver at
+      # e >= 1 or an invalid period / semi-major axis.
+      if (not np.isfinite(trial).all() or trial[0] <= 0 or trial[3] <= 0
+              or not (0 <= trial[2] < 1)):
+          return np.full(n, 1e8)
       y1 = np.array([alleph(params, i)[0] for i in range(n)])
       diff = yy - y1
       if npos > 0:
           diff[:npos] = _wrap_deg_diff(diff[:npos])  # theta is circular
       return diff / err
-    if rms_only:
+    if rms_only or len(selfit) == 0:
         y1 = np.array([alleph(par, i)[0] for i in range(n)])
     else:
-        result = least_squares(residuals, par, method='lm', max_nfev=1000, ftol=1e-10, xtol=1e-10, verbose=2)
+        if orb.fixel[2] and orb.el[2] >= 0.85:
+            # Highly eccentric systems need physical bounds throughout the
+            # fit; keep LM for the ordinary cases and existing diagnostics.
+            lower = np.full(len(selfit), -np.inf)
+            upper = np.full(len(selfit), np.inf)
+            for k, idx in enumerate(selfit):
+                if idx in (0, 3):
+                    lower[k] = 1e-12
+                if idx == 2:
+                    lower[k], upper[k] = 0.0, 0.999999
+            result = least_squares(residuals, par, method='trf',
+                                   bounds=(lower, upper), max_nfev=1000,
+                                   ftol=1e-10, xtol=1e-10, verbose=0)
+        else:
+            result = least_squares(residuals, par, method='lm',
+                                   max_nfev=1000, ftol=1e-10, xtol=1e-10, verbose=0)
+        if not result.success or not np.isfinite(result.x).all():
+            raise RuntimeError(f"Orbital optimizer did not converge: {result.message}")
+        trial_el = orb.el.copy()
+        trial_el[selfit] = result.x
+        if trial_el[0] <= 0 or trial_el[3] <= 0 or not (0 <= trial_el[2] < 1):
+            raise RuntimeError("Optimizer returned an unphysical orbit; fix poorly constrained elements and retry.")
         par = result.x
         y1 = yy - result.fun * err
         orb.el[selfit] = par
