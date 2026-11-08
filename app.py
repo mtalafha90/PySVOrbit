@@ -155,16 +155,16 @@ def compute_derived(elements, stats, override_key=None, override_value=None):
     K1 = _get_el(elements, "K1")
     K2 = _get_el(elements, "K2")
 
-    # Detect P unit (years vs days) - best-effort heuristic
+    # The unit follows the epoch reference and/or explicit INP metadata.
+    # A 400-year visual orbit is not a 400-day spectroscopic orbit.
     P_yr = None
+    T = _get_el(elements, "T")
+    period_unit = (stats or {}).get("period_unit") if isinstance(stats, dict) else None
     if P is not None:
-        if P > 200:  # likely days
-            P_yr = P / 365.25
-            warn.append(
-                "Detected P looks like days; converted to years for mass calculations."
-            )
-        else:
-            P_yr = P
+        try:
+            P_yr = backend._period_in_years(P, T=T, unit=period_unit)
+        except ValueError as exc:
+            warn.append(str(exc))
     else:
         warn.append("P is missing; cannot compute masses.")
 
@@ -724,7 +724,11 @@ def run_fit_to_dir(
 
         # Apply fit/fix flags (1=fit, 0=fixed)
         for i, nm in enumerate(list(backend.orb.elname)):
-            backend.orb.fixel[i] = int(fixel_map.get(nm, 1))
+            # A file-level '*' fixed flag or absence of required RV data
+            # cannot be overridden by the interface's initially checked boxes.
+            backend.orb.fixel[i] = (
+                int(backend.orb.fixel[i]) & int(fixel_map.get(nm, 1))
+            )
 
         backend.fitorb()
         backend.orbsave()
@@ -798,6 +802,7 @@ def run_fit_to_dir(
                 "nrv1": int(obj.get("nrv1", 0) or 0),
                 "nrv2": int(obj.get("nrv2", 0) or 0),
                 "parallax": float(obj.get("parallax", 0.0) or 0.0),
+                "period_unit": obj.get("period_unit"),
                 "chi2": float(obj.get("chi2", 0.0) or 0.0),
             }
         )
