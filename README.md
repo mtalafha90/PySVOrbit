@@ -114,7 +114,10 @@ If omitted, the unit is inferred from the periastron time `T`: ordinary
 year epochs imply years, whereas MJD/JD epochs imply days. Periods greater
 than 200 are **not** automatically days when `T` is known. The reader
 accepts observation dates as years, MJD, or full JD and converts them to
-the scale of `T`. The web interfaces respect `*K1`/`*K2` etc. in the
+the scale of `T`. Year epochs are interpreted as Besselian years, with
+B1900.0 = JD 2415020.31352. This numerical conversion does not apply
+heliocentric, barycentric, or UTC/TT time-scale corrections; reconcile
+those at the source when required. The web interfaces respect `*K1`/`*K2` etc. in the
 file even if a checkbox is selected; velocity parameters without the
 corresponding velocity observations are always held fixed.
 

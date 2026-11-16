@@ -199,23 +199,24 @@ def correct(data, t0):
     if data is None or len(data) == 0:
         return
     time = data[:, 0]
+    # B1900.0 = JD 2415020.31352 = MJD 15019.81352 (USNO Circular 163).
     if t0 > 2_000_000:  # full JD
         for j, t in enumerate(time):
             if t < 3000:
-                time[j] = 365.242198781 * (t - 1900) + 15020.31352 + 2400000.5
+                time[j] = 365.242198781 * (t - 1900) + 15019.81352 + 2400000.5
             elif t < 2_000_000:
                 time[j] = t + 2400000.5
     elif t0 > 3000:  # MJD
         for j, t in enumerate(time):
             if t < 3000:
-                time[j] = 365.242198781 * (t - 1900) + 15020.31352
+                time[j] = 365.242198781 * (t - 1900) + 15019.81352
             elif t > 2_000_000:
                 time[j] = t - 2400000.5
     else:  # decimal/Besselian years
         for j, t in enumerate(time):
             if t > 3000:
                 mjd = t - 2400000.5 if t > 2_000_000 else t
-                time[j] = 1900 + (mjd - 15020.31352) / 365.242198781
+                time[j] = 1900 + (mjd - 15019.81352) / 365.242198781
 
 def _rebuild_rv_offsets():
     """(Re)build the per-instrument RV zero-point offset parameters
