@@ -3,16 +3,10 @@ title: "PySVOrbit: A Python Package for Combined Spectroscopic and Visual Orbit 
 message: "If you use this software, please cite both the software and the accompanying paper."
 type: software
 authors:
-  - family-names: Al-Wardat
-    given-names: Mashhoor A.
-    affiliation: "Department of Applied Physics and Astronomy, University of Sharjah"
   - family-names: Talafha
     given-names: Mohammed H.
     affiliation: "Research Institute of Sciences and Engineering, University of Sharjah"
     email: mtalafha901@gmail.com
-  - family-names: Alshamsi
-    given-names: Shaikha N.
-    affiliation: "Research Institute of Sciences and Engineering, University of Sharjah"
 version: "1.0.1"
 doi: 10.5281/zenodo.21833307
 date-released: "2026-08-06"

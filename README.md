@@ -204,16 +204,14 @@ The archived release is the citation that pins the exact version of the
 code you ran; the repository continues to develop, so it should not be
 cited in its place.
 
-> Al-Wardat, M. A., Talafha, M. H., & Alshamsi, S. N. (2026).
+> Talafha, M. H. (2026).
 > *PySVOrbit: A Python Package for Combined Spectroscopic and Visual Orbit
 > Fitting for Binary Stars* (version 1.0.1). Zenodo.
 > <https://doi.org/10.5281/zenodo.21833307>
 
 ```bibtex
-@software{alwardat_pysvorbit_software_2026,
-  author    = {Al-Wardat, Mashhoor A. and
-               Talafha, Mohammed H. and
-               Alshamsi, Shaikha N.},
+@software{talafha_pysvorbit_software_2026,
+  author    = {Talafha, Mohammed H.},
   title     = {{PySVOrbit}: A Python Package for Combined Spectroscopic
                and Visual Orbit Fitting for Binary Stars},
   version   = {1.0.1},
